@@ -281,7 +281,7 @@ def _extract_wave_height(description: str) -> float | None:
     return None
 
 
-def validate_risk_level(llm_output: dict, weather_data_list: list, transport: str) -> dict:
+def validate_risk_level(llm_output: dict, weather_data_list: list, transport: str, lang: str = "zh") -> dict:
     """
     规则引擎安全网：对 LLM 输出做二次校验。
     - Override UP：气象数据越过硬红线但 LLM 判低了 → 强制升级
@@ -362,7 +362,16 @@ def validate_risk_level(llm_output: dict, weather_data_list: list, transport: st
         result["risk_level"] = required_level
         result["rule_override"] = True
         result["original_risk_level"] = llm_level
-        result["core_reason"] = f"⚠️ 规则引擎校正（{llm_level}→{required_level}）：{trigger_reason}\n\n" + result.get("core_reason", "")
+        if lang == "en":
+            result["core_reason"] = (
+                f"⚠️ Rule engine override ({llm_level}→{required_level}): {trigger_reason}\n\n"
+                + result.get("core_reason", "")
+            )
+        else:
+            result["core_reason"] = (
+                f"⚠️ 规则引擎校正（{llm_level}→{required_level}）：{trigger_reason}\n\n"
+                + result.get("core_reason", "")
+            )
 
     # Override DOWN：LLM 判高了，结构化指标不支持该风险等级
     # Aviation: always safe to override (wind + visibility are reliable structured fields)
@@ -371,10 +380,17 @@ def validate_risk_level(llm_output: dict, weather_data_list: list, transport: st
         result["risk_level"] = required_level
         result["rule_override"] = True
         result["original_risk_level"] = llm_level
-        result["core_reason"] = (
-            f"⚠️ 规则引擎校正（{llm_level}→{required_level}）：结构化气象指标未达到{llm_level}等级的触发条件\n\n"
-            + result.get("core_reason", "")
-        )
+        if lang == "en":
+            result["core_reason"] = (
+                f"⚠️ Rule engine override ({llm_level}→{required_level}): "
+                f"Structured weather indicators do not meet the trigger conditions for {llm_level}.\n\n"
+                + result.get("core_reason", "")
+            )
+        else:
+            result["core_reason"] = (
+                f"⚠️ 规则引擎校正（{llm_level}→{required_level}）：结构化气象指标未达到{llm_level}等级的触发条件\n\n"
+                + result.get("core_reason", "")
+            )
     else:
         result["rule_override"] = False
 
@@ -384,10 +400,19 @@ def validate_risk_level(llm_output: dict, weather_data_list: list, transport: st
 # ---------------------------------------------------------------------------
 # Agent Loop
 # ---------------------------------------------------------------------------
-def run_agent(user_message: str, transport: str = "plane") -> tuple:
+LANG_DIRECTIVE_EN = (
+    "\n\nIMPORTANT: The user is viewing in English. "
+    "You MUST write ALL text fields in the output JSON "
+    "(risk_label, core_reason, alternative_advice, weather_summary) in English. "
+    "Do not use any Chinese characters in those fields."
+)
+
+
+def run_agent(user_message: str, transport: str = "plane", lang: str = "zh") -> tuple:
     """返回 (llm_output_dict, weather_data_list)"""
+    system_content = SYSTEM_PROMPT + (LANG_DIRECTIVE_EN if lang == "en" else "")
     messages = [
-        {"role": "system", "content": SYSTEM_PROMPT},
+        {"role": "system", "content": system_content},
         {"role": "user", "content": user_message},
     ]
     max_iterations = 5
@@ -473,12 +498,13 @@ class AssessRequest(BaseModel):
     origin: str
     destination: str
     date: str
-    transport: str  # "plane" | "ship"
+    transport: str   # "plane" | "ship"
+    lang: str = "zh" # "zh" | "en"
 
 
 TRANSPORT_LABELS = {
-    "plane": "飞机",
-    "ship": "船只",
+    "zh": {"plane": "飞机",  "ship": "船只"},
+    "en": {"plane": "plane", "ship": "ship"},
 }
 
 
@@ -487,14 +513,21 @@ async def assess(req: AssessRequest, request: Request):
     ip = request.client.host if request.client else "unknown"
     if not _check_rate_limit(ip):
         raise HTTPException(status_code=429, detail="请求过于频繁，请稍后再试（每小时限 20 次）")
-    transport_label = TRANSPORT_LABELS.get(req.transport, req.transport)
-    user_message = (
-        f"我计划于 {req.date} 乘坐{transport_label}从 {req.origin} 前往 {req.destination}。"
-        f"请帮我评估气象风险，判断是否适合出行。"
-    )
+    lang = req.lang if req.lang in ("zh", "en") else "zh"
+    transport_label = TRANSPORT_LABELS.get(lang, TRANSPORT_LABELS["zh"]).get(req.transport, req.transport)
+    if lang == "en":
+        user_message = (
+            f"I plan to travel from {req.origin} to {req.destination} by {transport_label} on {req.date}. "
+            f"Please assess the weather risk and advise whether it is safe to travel."
+        )
+    else:
+        user_message = (
+            f"我计划于 {req.date} 乘坐{transport_label}从 {req.origin} 前往 {req.destination}。"
+            f"请帮我评估气象风险，判断是否适合出行。"
+        )
     try:
-        llm_output, weather_data_list = run_agent(user_message, transport=req.transport)
-        result = validate_risk_level(llm_output, weather_data_list, req.transport)
+        llm_output, weather_data_list = run_agent(user_message, transport=req.transport, lang=lang)
+        result = validate_risk_level(llm_output, weather_data_list, req.transport, lang=lang)
         return result
     except ValueError as e:
         raise HTTPException(status_code=422, detail=str(e))

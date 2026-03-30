@@ -1045,7 +1045,7 @@
       const res  = await fetch('/api/assess', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ origin, destination: dest, date: selectedDate, transport }),
+        body: JSON.stringify({ origin, destination: dest, date: selectedDate, transport, lang: currentLang }),
       });
       const data = await res.json();
       if (!res.ok) throw new Error(data.detail || t('error_default'));
