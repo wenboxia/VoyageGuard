@@ -1,0 +1,6 @@
+fastapi
+uvicorn[standard]
+openai
+ddgs
+requests
+python-dotenv
