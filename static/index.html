@@ -619,9 +619,33 @@
       .route-row { grid-template-columns: 1fr; }
       .route-arrow { display: none; }
     }
+
+    /* ─── Lang toggle ─── */
+    .lang-toggle {
+      position: fixed;
+      top: 16px;
+      right: 16px;
+      z-index: 100;
+      background: var(--surface);
+      border: 1px solid var(--border-bright);
+      border-radius: 7px;
+      color: var(--cyan);
+      font-family: var(--mono);
+      font-size: 12px;
+      font-weight: 600;
+      padding: 6px 12px;
+      cursor: pointer;
+      letter-spacing: 0.08em;
+      transition: background 0.18s, box-shadow 0.18s;
+    }
+    .lang-toggle:hover {
+      background: var(--cyan-dim);
+      box-shadow: 0 0 12px rgba(0,200,232,0.15);
+    }
   </style>
 </head>
 <body>
+<button class="lang-toggle" id="lang-toggle-btn" onclick="switchLang()">EN</button>
 <div class="container">
 
   <!-- Header -->
@@ -714,54 +738,207 @@
   // ── State ──
   let transport = 'plane';
   let selectedDate = '';
+  let currentLang = 'zh';
+  let lastResultData = null;
 
-  // ── Init dates ──
-  (function initDates() {
-    const group = document.getElementById('date-group');
-    const labels = ['今天', '明天', '后天'];
-    const now = new Date();
+  // ── Translations ──
+  const T = {
+    zh: {
+      title:              '出行气象决策助手',
+      page_title:         'VoyageGuard · 出行气象决策助手',
+      header_sub:         'AI 实时分析气象风险，告诉你「能不能走」',
+      quick_demo:         '快速体验',
+      preset_air_name:    '✈️ 航空高风险',
+      preset_air_sub:     '大风天飞拉萨',
+      preset_ship_name:   '🚢 海事高风险',
+      preset_ship_sub:    '近海大风停航',
+      preset_low_name:    '✓ 低风险出行',
+      preset_low_sub:     '晴天微风放心走',
+      plane_btn:          '✈️ 飞机',
+      ship_btn:           '🚢 船只',
+      origin_label:       '出发地',
+      origin_ph:          '如：上海',
+      dest_label:         '目的地',
+      dest_ph:            '如：三亚',
+      travel_date:        '出行日期',
+      date_labels:        ['今天', '明天', '后天'],
+      submit:             '开始评估',
+      assessing:          '评估中...',
+      processing:         '正在处理请求...',
+      go_yes:             '建议出行',
+      go_no:              '不建议出行',
+      risk_label:         { LOW: '低风险', MEDIUM: '中风险', HIGH: '高风险' },
+      override_text:      '规则引擎已校正',
+      original_label:     '原始判断:',
+      weather_header:     '气象数据概览',
+      analysis_header:    '风险分析',
+      advice_header:      '备选建议',
+      reassess:           '重新评估',
+      error_default:      '评估失败，请稍后重试',
+      retry:              '重试',
+      footer_line2:       '仅供参考，请以航司 / 船务官方通知为准',
+      step_parse:         '解析出行参数',
+      step_air_threshold: '比对航空安全阈值（侧风 / 能见度 / 雷暴）',
+      step_ship_threshold:'检测风力等级（近海 ≥6级 = 高风险）',
+      step_rule:          '规则引擎安全网校验',
+      step_report:        '生成综合风险评估报告',
+      step_search_suffix: '海事天气预警',
+      lang_btn:           'EN',
+    },
+    en: {
+      title:              'Weather Risk Assistant',
+      page_title:         'VoyageGuard · Weather Risk Assistant',
+      header_sub:         'AI-powered real-time weather risk analysis — know if you can travel',
+      quick_demo:         'Quick Demo',
+      preset_air_name:    '✈️ Aviation High Risk',
+      preset_air_sub:     'Strong winds to Lhasa',
+      preset_ship_name:   '🚢 Maritime High Risk',
+      preset_ship_sub:    'Coastal gale, suspended service',
+      preset_low_name:    '✓ Low Risk Travel',
+      preset_low_sub:     'Clear skies, light breeze',
+      plane_btn:          '✈️ Plane',
+      ship_btn:           '🚢 Ship',
+      origin_label:       'Origin',
+      origin_ph:          'e.g. Shanghai',
+      dest_label:         'Destination',
+      dest_ph:            'e.g. Sanya',
+      travel_date:        'Travel Date',
+      date_labels:        ['Today', 'Tomorrow', 'Day After'],
+      submit:             'Assess Risk',
+      assessing:          'Assessing...',
+      processing:         'Processing request...',
+      go_yes:             'Go Ahead',
+      go_no:              'Do Not Travel',
+      risk_label:         { LOW: 'Low Risk', MEDIUM: 'Medium Risk', HIGH: 'High Risk' },
+      override_text:      'Rule Engine Override',
+      original_label:     'Original:',
+      weather_header:     'Weather Overview',
+      analysis_header:    'Risk Analysis',
+      advice_header:      'Alternatives',
+      reassess:           'Re-assess',
+      error_default:      'Assessment failed, please try again',
+      retry:              'Retry',
+      footer_line2:       'For reference only. Always follow official airline / shipping notifications.',
+      step_parse:         'Parsing travel parameters',
+      step_air_threshold: 'Checking aviation thresholds (crosswind / visibility / thunderstorm)',
+      step_ship_threshold:'Checking wind force level (coastal ≥6 = high risk)',
+      step_rule:          'Rule engine safety net validation',
+      step_report:        'Generating comprehensive risk assessment',
+      step_search_suffix: 'maritime weather warning',
+      lang_btn:           '中',
+    },
+  };
+
+  function t(key) { return T[currentLang][key]; }
+
+  // ── Lang switch ──
+  function switchLang() {
+    currentLang = currentLang === 'zh' ? 'en' : 'zh';
+    document.getElementById('lang-toggle-btn').textContent = t('lang_btn');
+    document.documentElement.lang = currentLang === 'zh' ? 'zh-CN' : 'en';
+    document.title = t('page_title');
+    applyLang();
+  }
+
+  function applyLang() {
+    document.querySelector('.header h1').textContent = t('title');
+    document.querySelector('.header-sub').textContent = t('header_sub');
+
+    const sectionLabels = document.querySelectorAll('#form-card .section-label');
+    if (sectionLabels[0]) sectionLabels[0].textContent = t('quick_demo');
+    if (sectionLabels[1]) sectionLabels[1].textContent = t('travel_date');
+
+    const presetBtns = document.querySelectorAll('.preset-btn');
+    const presetKeys = [
+      ['preset_air_name',  'preset_air_sub'],
+      ['preset_ship_name', 'preset_ship_sub'],
+      ['preset_low_name',  'preset_low_sub'],
+    ];
+    presetBtns.forEach((btn, i) => {
+      btn.querySelector('.preset-name').textContent = t(presetKeys[i][0]);
+      btn.querySelector('.preset-sub').textContent  = t(presetKeys[i][1]);
+    });
+
+    document.getElementById('btn-plane').textContent = t('plane_btn');
+    document.getElementById('btn-ship').textContent  = t('ship_btn');
+
+    const inputLabels = document.querySelectorAll('.input-label');
+    if (inputLabels[0]) inputLabels[0].textContent = t('origin_label');
+    if (inputLabels[1]) inputLabels[1].textContent = t('dest_label');
+    document.getElementById('origin').placeholder      = t('origin_ph');
+    document.getElementById('destination').placeholder = t('dest_ph');
+
+    rebuildDateButtons();
+
+    const submitBtn = document.getElementById('submit-btn');
+    if (!submitBtn.disabled) submitBtn.textContent = t('submit');
+
+    document.querySelector('.retry-btn').textContent = t('retry');
+    document.querySelector('.footer').innerHTML =
+      `VoyageGuard · Powered by Qwen AI<br>${t('footer_line2')}`;
+
+    // Re-render result if visible
+    if (document.getElementById('result').style.display !== 'none' && lastResultData) {
+      renderResult(lastResultData);
+    }
+  }
+
+  // ── Date buttons ──
+  function rebuildDateButtons() {
+    const group  = document.getElementById('date-group');
+    const labels = t('date_labels');
+    const now    = new Date();
+    group.innerHTML = '';
     for (let i = 0; i < 3; i++) {
       const d = new Date(now);
       d.setDate(d.getDate() + i);
-      const mm = String(d.getMonth() + 1).padStart(2, '0');
-      const dd = String(d.getDate()).padStart(2, '0');
+      const mm      = String(d.getMonth() + 1).padStart(2, '0');
+      const dd      = String(d.getDate()).padStart(2, '0');
       const isoDate = `${d.getFullYear()}-${mm}-${dd}`;
-      const btn = document.createElement('button');
-      btn.className = 'date-btn' + (i === 0 ? ' active' : '');
-      btn.innerHTML = `<span class="day-label">${labels[i]}</span><span class="date-val">${mm}/${dd}</span>`;
+      const btn     = document.createElement('button');
+      btn.className    = 'date-btn' + (isoDate === selectedDate ? ' active' : '');
+      btn.innerHTML    = `<span class="day-label">${labels[i]}</span><span class="date-val">${mm}/${dd}</span>`;
       btn.dataset.date = isoDate;
-      btn.onclick = () => {
+      btn.onclick      = () => {
         document.querySelectorAll('.date-btn').forEach(b => b.classList.remove('active'));
         btn.classList.add('active');
         selectedDate = isoDate;
         updateSubmitState();
       };
-      if (i === 0) selectedDate = isoDate;
       group.appendChild(btn);
     }
+  }
+
+  // ── Init dates ──
+  (function initDates() {
+    const now = new Date();
+    const mm  = String(now.getMonth() + 1).padStart(2, '0');
+    const dd  = String(now.getDate()).padStart(2, '0');
+    selectedDate = `${now.getFullYear()}-${mm}-${dd}`;
+    rebuildDateButtons();
     updateSubmitState();
   })();
 
   // ── Presets ──
   const PRESETS = {
-    'high-air':  { origin: '上海', destination: '拉萨',  transport: 'plane' },
-    'high-ship': { origin: '舟山', destination: '嵊泗',  transport: 'ship'  },
-    'low':       { origin: '杭州', destination: '南京',  transport: 'plane' },
+    'high-air':  { origin: '上海', destination: '拉萨', transport: 'plane' },
+    'high-ship': { origin: '舟山', destination: '嵊泗', transport: 'ship'  },
+    'low':       { origin: '杭州', destination: '南京', transport: 'plane' },
   };
   function loadPreset(key) {
     const p = PRESETS[key];
     if (!p) return;
-    document.getElementById('origin').value = p.origin;
+    document.getElementById('origin').value      = p.origin;
     document.getElementById('destination').value = p.destination;
     setTransport(p.transport);
     updateSubmitState();
   }
 
   // ── Transport ──
-  function setTransport(t) {
-    transport = t;
-    document.getElementById('btn-plane').classList.toggle('active', t === 'plane');
-    document.getElementById('btn-ship').classList.toggle('active',  t === 'ship');
+  function setTransport(tp) {
+    transport = tp;
+    document.getElementById('btn-plane').classList.toggle('active', tp === 'plane');
+    document.getElementById('btn-ship').classList.toggle('active',  tp === 'ship');
   }
 
   // ── Submit state ──
@@ -779,21 +956,21 @@
   function buildSteps(origin, dest, mode) {
     if (mode === 'plane') {
       return [
-        { text: `解析出行参数`,                                   delay: 300  },
-        { text: `get_weather_forecast("${origin}")`,              delay: 900  },
-        { text: `get_weather_forecast("${dest}")`,                delay: 3200 },
-        { text: `比对航空安全阈值（侧风 / 能见度 / 雷暴）`,       delay: 5800 },
-        { text: `规则引擎安全网校验`,                             delay: 7800 },
-        { text: `生成综合风险评估报告`,                           delay: 9200 },
+        { text: t('step_parse'),                                            delay: 300  },
+        { text: `get_weather_forecast("${origin}")`,                        delay: 900  },
+        { text: `get_weather_forecast("${dest}")`,                          delay: 3200 },
+        { text: t('step_air_threshold'),                                    delay: 5800 },
+        { text: t('step_rule'),                                             delay: 7800 },
+        { text: t('step_report'),                                           delay: 9200 },
       ];
     } else {
       return [
-        { text: `解析出行参数`,                                   delay: 300  },
-        { text: `get_weather_forecast("${dest}")`,                delay: 900  },
-        { text: `检测风力等级（近海 ≥6级 = 高风险）`,            delay: 3200 },
-        { text: `search_web("${dest} 海事天气预警")`,             delay: 5000 },
-        { text: `规则引擎安全网校验`,                             delay: 7800 },
-        { text: `生成综合风险评估报告`,                           delay: 9200 },
+        { text: t('step_parse'),                                            delay: 300  },
+        { text: `get_weather_forecast("${dest}")`,                          delay: 900  },
+        { text: t('step_ship_threshold'),                                   delay: 3200 },
+        { text: `search_web("${dest} ${t('step_search_suffix')}")`,        delay: 5000 },
+        { text: t('step_rule'),                                             delay: 7800 },
+        { text: t('step_report'),                                           delay: 9200 },
       ];
     }
   }
@@ -804,16 +981,14 @@
     const steps = buildSteps(origin, dest, mode);
     let lastEl = null;
 
-    steps.forEach((step, i) => {
-      const t = setTimeout(() => {
-        // Mark previous step done
+    steps.forEach((step) => {
+      const timer = setTimeout(() => {
         if (lastEl) {
           const icon = lastEl.querySelector('.step-icon');
-          const text = lastEl.querySelector('.step-text');
+          const txt  = lastEl.querySelector('.step-text');
           if (icon) { icon.className = 'step-icon done'; icon.textContent = '✓'; }
-          if (text) text.className = 'step-text done';
+          if (txt)  txt.className = 'step-text done';
         }
-        // Add new step
         const el = document.createElement('div');
         el.className = 'step-item';
         el.innerHTML = `
@@ -821,25 +996,22 @@
           <div class="step-text active">${escHtml(step.text)}</div>
         `;
         logEl.appendChild(el);
-        // Trigger transition
         requestAnimationFrame(() => requestAnimationFrame(() => el.classList.add('visible')));
         lastEl = el;
-        // Update subtitle
-        document.getElementById('loading-subtitle').textContent =
-          step.text.replace(/^get_weather_forecast|^search_web/, t => t);
+        document.getElementById('loading-subtitle').textContent = step.text;
       }, step.delay);
-      stepTimers.push(t);
+      stepTimers.push(timer);
     });
   }
 
   function stopStepLog() {
-    stepTimers.forEach(t => clearTimeout(t));
+    stepTimers.forEach(timer => clearTimeout(timer));
     stepTimers = [];
     document.querySelectorAll('#step-log .step-item').forEach(el => {
       const icon = el.querySelector('.step-icon');
-      const text = el.querySelector('.step-text');
+      const txt  = el.querySelector('.step-text');
       if (icon) { icon.className = 'step-icon done'; icon.textContent = '✓'; }
-      if (text) text.className = 'step-text done';
+      if (txt)  txt.className = 'step-text done';
     });
   }
 
@@ -853,7 +1025,7 @@
     hide('loading'); hide('result'); hide('error');
     show('form-card');
     document.getElementById('submit-btn').disabled = false;
-    document.getElementById('submit-btn').textContent = '开始评估';
+    document.getElementById('submit-btn').textContent = t('submit');
   }
 
   // ── Submit ──
@@ -864,42 +1036,45 @@
 
     hide('form-card'); hide('result'); hide('error');
     show('loading');
+    document.getElementById('loading-subtitle').textContent = t('processing');
     startStepLog(origin, dest, transport);
-    document.getElementById('submit-btn').textContent = '评估中...';
+    document.getElementById('submit-btn').textContent = t('assessing');
     document.getElementById('submit-btn').disabled = true;
 
     try {
-      const res = await fetch('/api/assess', {
+      const res  = await fetch('/api/assess', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ origin, destination: dest, date: selectedDate, transport }),
       });
       const data = await res.json();
-      if (!res.ok) throw new Error(data.detail || '请求失败');
+      if (!res.ok) throw new Error(data.detail || t('error_default'));
       stopStepLog();
       setTimeout(() => renderResult(data), 350);
     } catch (err) {
       stopStepLog();
       hide('loading');
-      document.getElementById('error-msg').textContent = err.message || '评估失败，请稍后重试';
+      document.getElementById('error-msg').textContent = err.message || t('error_default');
       show('error');
     }
   }
 
   // ── Render result ──
   function renderResult(data) {
+    lastResultData = data;
     hide('loading');
 
-    const level = data.risk_level || 'MEDIUM';
+    const level    = data.risk_level || 'MEDIUM';
     const iconMap  = { LOW: '✓', MEDIUM: '⚠', HIGH: '✕' };
     const codeMap  = { LOW: 'LOW RISK', MEDIUM: 'MEDIUM RISK', HIGH: 'HIGH RISK' };
-    const goText   = data.is_go_recommended ? '建议出行' : '不建议出行';
+    const goText   = data.is_go_recommended ? t('go_yes') : t('go_no');
     const goClass  = data.is_go_recommended ? 'yes' : 'no';
+    const riskLbl  = t('risk_label')[level] || escHtml(data.risk_label || level);
 
     const overrideHtml = data.rule_override ? `
       <div class="rule-override-badge">
         <div class="override-dot"></div>
-        <div class="override-text">规则引擎已校正 &nbsp;·&nbsp; 原始判断: ${escHtml(data.original_risk_level || '')}</div>
+        <div class="override-text">${t('override_text')} &nbsp;·&nbsp; ${t('original_label')} ${escHtml(data.original_risk_level || '')}</div>
       </div>` : '';
 
     const html = `
@@ -907,24 +1082,24 @@
         <div class="risk-hero-top">
           <div class="risk-icon">${iconMap[level]}</div>
           <div class="risk-level-code">${codeMap[level]}</div>
-          <div class="risk-label-text">${escHtml(data.risk_label || level)}</div>
+          <div class="risk-label-text">${riskLbl}</div>
           <span class="go-badge ${goClass}">${goText}</span>
         </div>
         ${overrideHtml}
       </div>
       <div class="info-card weather">
-        <div class="info-card-header"><span>◈</span>&nbsp;气象数据概览</div>
+        <div class="info-card-header"><span>◈</span>&nbsp;${t('weather_header')}</div>
         <div class="info-card-body">${escHtml(data.weather_summary || '')}</div>
       </div>
       <div class="info-card analysis">
-        <div class="info-card-header"><span>◆</span>&nbsp;风险分析</div>
+        <div class="info-card-header"><span>◆</span>&nbsp;${t('analysis_header')}</div>
         <div class="info-card-body">${escHtml(data.core_reason || '')}</div>
       </div>
       <div class="info-card advice">
-        <div class="info-card-header"><span>◇</span>&nbsp;备选建议</div>
+        <div class="info-card-header"><span>◇</span>&nbsp;${t('advice_header')}</div>
         <div class="info-card-body">${escHtml(data.alternative_advice || '')}</div>
       </div>
-      <button class="submit-btn" onclick="resetToForm()" style="margin-top:4px">重新评估</button>
+      <button class="submit-btn" onclick="resetToForm()" style="margin-top:4px">${t('reassess')}</button>
     `;
 
     const resultEl = document.getElementById('result');
