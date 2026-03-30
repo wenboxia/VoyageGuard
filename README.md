@@ -1,3 +1,12 @@
+---
+title: VoyageGuard
+emoji: 🚢
+colorFrom: blue
+colorTo: indigo
+sdk: docker
+app_port: 7860
+---
+
 # VoyageGuard · 出行气象决策助手
 
 AI Agent 驱动的气象风险决策工具，专注飞机与船只出行场景。将实时气象数据与行业安全红线自动比对，直接给出"能不能走"的决策建议。
