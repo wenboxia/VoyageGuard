@@ -318,32 +318,60 @@ def validate_risk_level(llm_output: dict, weather_data_list: list, transport: st
             if effective_wind >= 15:  # >= 15: at-threshold is still dangerous
                 if LEVEL_ORDER["HIGH"] > LEVEL_ORDER[required_level]:
                     required_level = "HIGH"
-                    trigger_reason = f"风速 {effective_wind} m/s 达到航空红线（≥15 m/s）"
+                    trigger_reason = (
+                        f"Wind speed {effective_wind} m/s reaches aviation red line (≥15 m/s)"
+                        if lang == "en" else
+                        f"风速 {effective_wind} m/s 达到航空红线（≥15 m/s）"
+                    )
             if effective_vis < 0.4:
                 if LEVEL_ORDER["HIGH"] > LEVEL_ORDER[required_level]:
                     required_level = "HIGH"
-                    trigger_reason = f"能见度 {effective_vis} km 低于航空红线 0.4 km"
+                    trigger_reason = (
+                        f"Visibility {effective_vis} km below aviation red line of 0.4 km"
+                        if lang == "en" else
+                        f"能见度 {effective_vis} km 低于航空红线 0.4 km"
+                    )
             if "雷暴" in all_desc or "thunderstorm" in all_desc.lower():
                 if LEVEL_ORDER["MEDIUM"] > LEVEL_ORDER[required_level]:
                     required_level = "MEDIUM"
-                    trigger_reason = "存在雷暴，至少中风险"
+                    trigger_reason = (
+                        "Thunderstorm detected — at least medium risk"
+                        if lang == "en" else
+                        "存在雷暴，至少中风险"
+                    )
         elif transport == "ship":
             if effective_wind >= 10.8:
                 if LEVEL_ORDER["HIGH"] > LEVEL_ORDER[required_level]:
                     required_level = "HIGH"
-                    trigger_reason = f"风速 {effective_wind} m/s 达到近海游船停航红线（≥10.8 m/s）"
+                    trigger_reason = (
+                        f"Wind speed {effective_wind} m/s reaches coastal vessel suspension red line (≥10.8 m/s)"
+                        if lang == "en" else
+                        f"风速 {effective_wind} m/s 达到近海游船停航红线（≥10.8 m/s）"
+                    )
             if wave_height is not None and wave_height > 2.5:
                 if LEVEL_ORDER["HIGH"] > LEVEL_ORDER[required_level]:
                     required_level = "HIGH"
-                    trigger_reason = f"有效浪高 {wave_height} m 超过红线 2.5 m"
+                    trigger_reason = (
+                        f"Significant wave height {wave_height} m exceeds red line of 2.5 m"
+                        if lang == "en" else
+                        f"有效浪高 {wave_height} m 超过红线 2.5 m"
+                    )
             if wave_height is not None and wave_height >= 1.5:
                 if LEVEL_ORDER["MEDIUM"] > LEVEL_ORDER[required_level]:
                     required_level = "MEDIUM"
-                    trigger_reason = f"有效浪高 {wave_height} m 处于中风险区间（1.5-2.5 m）"
+                    trigger_reason = (
+                        f"Significant wave height {wave_height} m in medium-risk range (1.5–2.5 m)"
+                        if lang == "en" else
+                        f"有效浪高 {wave_height} m 处于中风险区间（1.5-2.5 m）"
+                    )
             if effective_wind >= 8.0:
                 if LEVEL_ORDER["MEDIUM"] > LEVEL_ORDER[required_level]:
                     required_level = "MEDIUM"
-                    trigger_reason = f"风速 {effective_wind} m/s 处于中风险区间（5-6 级）"
+                    trigger_reason = (
+                        f"Wind speed {effective_wind} m/s in medium-risk range (Beaufort 5–6)"
+                        if lang == "en" else
+                        f"风速 {effective_wind} m/s 处于中风险区间（5-6 级）"
+                    )
 
     # For ship Override DOWN: only when we have wave height data to confidently assess sea state
     has_wave_data = transport == "plane" or any(
