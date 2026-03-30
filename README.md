@@ -9,7 +9,11 @@ app_port: 7860
 
 # VoyageGuard · 出行气象决策助手
 
-AI Agent 驱动的气象风险决策工具，专注飞机与船只出行场景。将实时气象数据与行业安全红线自动比对，直接给出"能不能走"的决策建议。
+[![Hugging Face Spaces](https://img.shields.io/badge/🤗%20Hugging%20Face-Live%20Demo-blue)](https://huggingface.co/spaces/wenboxia/voyageguard)
+
+AI Agent 驱动的气象风险决策工具，专注飞机与船只出行场景。将实时气象数据与行业安全红线自动比对，直接给出"能不能走"的决策建议。支持中英文双语切换。
+
+**在线体验：** https://huggingface.co/spaces/wenboxia/voyageguard
 
 ## 功能演示
 
@@ -21,6 +25,8 @@ AI Agent 驱动的气象风险决策工具，专注飞机与船只出行场景�
 
 内置三个示例场景按钮，一键填入典型场景（航空高风险 / 海事高风险 / 低风险出行）。
 
+界面右上角提供 **中/EN 语言切换**，切换后所有 UI 文字及 AI 输出均以对应语言展示。
+
 ## 快速启动（三步）
 
 **1. 安装依赖**
@@ -30,7 +36,6 @@ pip install -r requirements.txt
 
 **2. 配置 API Key**
 ```bash
-# 编辑 .env 文件，填入你的阿里 Dashscope API Key
 echo "DASHSCOPE_API_KEY=your_key_here" > .env
 ```
 
@@ -47,7 +52,8 @@ uvicorn app:app --reload
 - LLM：通义千问 Qwen Plus（via Dashscope OpenAI 兼容接口）
 - 气象数据：wttr.in（免费，无需 Key）
 - 搜索：DDGS（DuckDuckGo，免费，无需 Key）
-- 前端：纯 HTML/CSS/JS 单文件
+- 前端：纯 HTML/CSS/JS 单文件，Mission-Critical Operations Center 风格
+- 部署：Hugging Face Spaces（Docker runtime）
 
 ## AI 系统设计
 
@@ -62,7 +68,7 @@ uvicorn app:app --reload
 
 安全阀：最大工具调用次数 5 次，超过后强制输出当前信息的评估结果。
 
-### 规则引擎安全网（V1.5 新增）
+### 规则引擎安全网（V1.5）
 
 LLM 判断结果经过 Python 硬编码规则做二次校验：
 
@@ -93,6 +99,17 @@ LLM 判断结果经过 Python 硬编码规则做二次校验：
 | 海事 | 有效浪高 > 2.5 m | 高风险 |
 | 海事 | 浪高 1.5-2.5 m 或风力 5-6 级 | 中风险 |
 
+### 双语支持
+
+- 前端 UI 右上角切换按钮（中 / EN）
+- 切换后同步传递 `lang` 字段至后端
+- 后端根据 `lang` 调整：用户问句语言、System Prompt 语言指令、规则引擎 override 提示文字
+- LLM 的所有输出字段（`weather_summary`、`core_reason`、`alternative_advice`、`risk_label`）随之切换为英文
+
+### 防刷保护
+
+内存级 Rate Limiting：每 IP 每小时最多 20 次请求，超出返回 HTTP 429。
+
 ## 模型横评（Eval）
 
 项目包含 `eval.py`，30 条标注测试用例，覆盖边界值、灰色地带、多因素叠加场景。全部 mock 工具执行，测试纯 LLM 推理能力。
@@ -114,6 +131,16 @@ LLM 判断结果经过 Python 硬编码规则做二次校验：
 - **灰色地带评分**：对"雷暴 + 风速接近但未超红线"等本身存在合理争议的用例，标注 `acceptable_levels: ["MEDIUM", "HIGH"]`，命中任一值均算正确，避免把 prompt 模糊性误计为模型错误
 - **硬判 vs 灰色区分**：每条用例结果标注"硬判"或"灰色"，方便分析失败原因
 - **多模型对比**：同一用例集同时测三个模型，定位各自失败模式（精度不足 / 语义理解差异 / 保守偏差）
+
+## 部署到 Hugging Face Spaces
+
+本项目已部署至 HF Spaces Docker runtime：https://huggingface.co/spaces/wenboxia/voyageguard
+
+自行部署步骤：
+1. 在 huggingface.co 创建新 Space，选择 **Docker** runtime
+2. 在 Space 的 **Settings → Repository secrets** 中添加 `DASHSCOPE_API_KEY`
+3. `git remote add origin https://huggingface.co/spaces/<用户名>/<space名>`
+4. `git push`，HF 自动构建 Docker 镜像，约 2-3 分钟后上线
 
 ## 切换为本地 Ollama 模型
 
