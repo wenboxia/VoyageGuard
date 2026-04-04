@@ -63,7 +63,7 @@ def get_weather_forecast(location: str) -> str:
     current = data.get("current_condition", [{}])[0]
     curr_wind_kmh = float(current.get("windspeedKmph", 0))
     curr_wind_ms = round(kmh_to_ms(curr_wind_kmh), 1)
-    curr_vis_km = float(current.get("visibility", 0))
+    curr_vis_km = float(current.get("visibility", 0)) or 999  # 0 = missing data from wttr.in
     curr_temp = current.get("temp_C", "N/A")
     curr_humidity = current.get("humidity", "N/A")
     weather_desc_list = current.get("lang_zh", current.get("weatherDesc", [{}]))
@@ -86,8 +86,9 @@ def get_weather_forecast(location: str) -> str:
         max_wind_kmh = max(hourly_winds) if hourly_winds else 0
         max_wind_ms = round(kmh_to_ms(max_wind_kmh), 1)
 
-        hourly_vis = [float(h.get("visibility", 999)) for h in day.get("hourly", [])]
-        min_vis_km = min(hourly_vis) if hourly_vis else 999
+        hourly_vis = [float(h.get("visibility", 0)) for h in day.get("hourly", [])]
+        hourly_vis_valid = [v for v in hourly_vis if v > 0]  # 0 = missing data from wttr.in
+        min_vis_km = min(hourly_vis_valid) if hourly_vis_valid else 999
 
         desc_list = day.get("hourly", [])
         desc_values = []
@@ -388,6 +389,7 @@ def validate_risk_level(llm_output: dict, weather_data_list: list, transport: st
     # Override UP：LLM 判低了，规则要求更高
     if LEVEL_ORDER[required_level] > LEVEL_ORDER.get(llm_level, 0):
         result["risk_level"] = required_level
+        result["is_go_recommended"] = False
         result["rule_override"] = True
         result["original_risk_level"] = llm_level
         if lang == "en":
@@ -401,11 +403,13 @@ def validate_risk_level(llm_output: dict, weather_data_list: list, transport: st
                 + result.get("core_reason", "")
             )
 
-    # Override DOWN：LLM 判高了，结构化指标不支持该风险等级
+    # Override DOWN：LLM 判为 HIGH 但结构化指标不支持 — 仅针对 HIGH，不降 MEDIUM
+    # MEDIUM 代表 LLM 对多因素边缘组合的综合判断（如冻雨+低能见度），规则引擎硬阈值无法捕获，不应干预
     # Aviation: always safe to override (wind + visibility are reliable structured fields)
     # Ship: only override if we have wave data (wind alone is insufficient—vessel type matters)
-    elif LEVEL_ORDER.get(llm_level, 0) > LEVEL_ORDER[required_level] and has_wave_data:
+    elif llm_level == "HIGH" and LEVEL_ORDER[required_level] < LEVEL_ORDER["HIGH"] and has_wave_data:
         result["risk_level"] = required_level
+        result["is_go_recommended"] = required_level != "HIGH"
         result["rule_override"] = True
         result["original_risk_level"] = llm_level
         if lang == "en":
