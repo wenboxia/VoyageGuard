@@ -1,12 +1,3 @@
----
-title: VoyageGuard
-emoji: 🚢
-colorFrom: blue
-colorTo: indigo
-sdk: docker
-app_port: 7860
----
-
 # VoyageGuard · 出行气象决策助手
 
 [![Hugging Face Spaces](https://img.shields.io/badge/🤗%20Hugging%20Face-Live%20Demo-blue)](https://huggingface.co/spaces/wenboxia/voyageguard)
