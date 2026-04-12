@@ -2,3 +2,6 @@
 __pycache__/
 *.pyc
 .DS_Store
+claude-code-prompt.md
+PRD-travel-weather-agent.md
+CLAUDE.md

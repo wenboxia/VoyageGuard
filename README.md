@@ -13,7 +13,11 @@ app_port: 7860
 
 AI Agent 驱动的气象风险决策工具，专注飞机与船只出行场景。将实时气象数据与行业安全红线自动比对，直接给出"能不能走"的决策建议。支持中英文双语切换。
 
-**在线体验：** https://huggingface.co/spaces/wenboxia/voyageguard
+## 🚀 Live Demo
+
+**[→ 在线体验 · Hugging Face Spaces](https://huggingface.co/spaces/wenboxia/voyageguard)**
+
+无需部署，打开即用。
 
 ## 功能演示
 
@@ -49,7 +53,7 @@ uvicorn app:app --reload
 ## 技术栈
 
 - 后端：FastAPI + Python
-- LLM：通义千问 Qwen Plus（via Dashscope OpenAI 兼容接口）
+- LLM：DeepSeek-V3（via Dashscope OpenAI 兼容接口）
 - 气象数据：wttr.in（免费，无需 Key）
 - 搜索：DDGS（DuckDuckGo，免费，无需 Key）
 - 前端：纯 HTML/CSS/JS 单文件，Mission-Critical Operations Center 风格
@@ -80,9 +84,9 @@ LLM 判断结果经过 Python 硬编码规则做二次校验：
                               最终结果（可能含 rule_override: true）
 ```
 
-- **Override UP**：气象数据明确越过硬红线（如风速 ≥ 15 m/s），但 LLM 保守判了低风险 → 强制升级
-- **Override DOWN**：所有结构化指标均低于触发阈值，但 LLM 过于保守判了高风险 → 降级
-- 输出字段 `rule_override: true/false` 明确告知是否发生了规则校正
+- **Override UP**：气象数据明确越过硬红线（如风速 ≥ 15 m/s），但 LLM 保守判了低风险 → 强制升级，同步将 `is_go_recommended` 置为 `false`
+- **Override DOWN**：所有结构化指标均低于触发阈值，但 LLM 判了 **HIGH** → 降级。**仅对 HIGH 生效，不干预 MEDIUM**——MEDIUM 代表 LLM 对多因素边缘组合（如冻雨 + 接近阈值的能见度）的综合判断，硬阈值无法捕获，应予保留
+- 输出字段 `rule_override: true/false` 明确告知是否发生了规则校正，`is_go_recommended` 随最终风险等级同步更新
 
 **为什么不直接用规则引擎替代 LLM？**
 规则引擎只处理"有明确阈值的硬红线"——灰色地带（多因素叠加、气象文字描述判断）仍由 LLM 负责，保留了 Agent 对复杂场景的灵活性。
@@ -114,15 +118,15 @@ LLM 判断结果经过 Python 硬编码规则做二次校验：
 
 项目包含 `eval.py`，30 条标注测试用例，覆盖边界值、灰色地带、多因素叠加场景。全部 mock 工具执行，测试纯 LLM 推理能力。
 
-### 最新结果（V1.5：LLM + 规则引擎安全网）
+### 最新结果（V1.6：LLM + 规则引擎安全网）
 
 | 模型 | LLM 准确率 | 安全网后 | 提升 | JSON 合规率 | 平均响应时间 |
 |---|---|---|---|---|---|
-| qwen-plus | 93.3% | **96.7%** | +3.3% | 100% | 8.2s |
-| deepseek-v3-250324 | 93.3% | **96.7%** | +3.3% | 100% | 8.5s |
-| hunyuan-turbos-latest | 80.0% | **96.7%** | +16.7% | 100% | 12.7s |
+| **deepseek-v3-250324** ✓ | 90.0% | **96.7%** | +6.7% | 100% | 7.4s |
+| qwen-plus | 90.0% | 93.3% | +3.3% | 100% | 9.0s |
+| hunyuan-turbos-latest | 73.3% | 86.7% | +13.3% | 100% | 14.1s |
 
-三个模型加安全网后全部达到 96.7%，体现了"LLM 负责灰色地带，硬规则守住红线"的架构分层价值。
+综合准确率与响应时延，选定 **DeepSeek-V3** 作为生产模型（96.7%，均速 7.4s）。规则引擎将最弱模型（Hunyuan）准确率从 73.3% 拉升至 86.7%（+13.3%），体现了"LLM 负责灰色地带，硬规则守住红线"的架构分层价值。
 
 > 运行 `python eval.py` 获取最新结果
 
@@ -157,3 +161,7 @@ MODEL = "qwen2.5:7b"
 - 增加"出发前提醒"（邮件/推送）
 - 接入航班动态 API，交叉验证 AI 判断 vs 实际航班状态
 - 历史准确率看板（追踪 AI 判断 vs 实际结果，持续优化 prompt）
+
+## License
+
+MIT © 2025 wenboxia
