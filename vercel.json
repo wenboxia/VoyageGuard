@@ -2,7 +2,7 @@
   "$schema": "https://openapi.vercel.sh/vercel.json",
   "functions": {
     "app.py": {
-      "excludeFiles": "{evals/**,*.md,.claude/**,Dockerfile,__pycache__/**,**/*.pyc}"
+      "excludeFiles": "{evals/**,*.md,.claude/**,Dockerfile,__pycache__/**,**/*.pyc,.env,.env.*,deploy-vercel.sh}"
     }
   }
 }
