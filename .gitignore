@@ -5,3 +5,9 @@ __pycache__/
 claude-code-prompt.md
 PRD-travel-weather-agent.md
 CLAUDE.md
+
+todo.md
+start_prompt.md
+.claude/
+deploy-vercel.sh
+.vercel/

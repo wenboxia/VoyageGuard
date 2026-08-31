@@ -620,6 +620,83 @@
       .route-arrow { display: none; }
     }
 
+    /* ─── UNKNOWN：证据不足（第四态）─── */
+    .risk-hero.UNKNOWN .risk-hero-top {
+      background: linear-gradient(180deg, rgba(148,163,184,0.07) 0%, transparent 100%);
+      border-bottom: 1px solid rgba(148,163,184,0.16);
+    }
+    .UNKNOWN .risk-icon {
+      background: rgba(148,163,184,0.1);
+      border-color: rgba(148,163,184,0.35);
+      color: #94a3b8;
+    }
+    .UNKNOWN .risk-level-code { color: #94a3b8; }
+
+    /* ─── 船型选择 ─── */
+    .vessel-wrap { display: none; margin-bottom: 16px; }
+    .vessel-wrap.visible { display: block; }
+    .vessel-btns { display: flex; gap: 8px; }
+    .vessel-btn {
+      flex: 1; padding: 10px 8px; min-height: 44px;
+      background: var(--surface2); border: 1px solid var(--border);
+      border-radius: 8px; color: var(--text); cursor: pointer;
+      font-family: var(--sans); font-size: 13px; line-height: 1.3;
+      transition: border-color 0.18s, background 0.18s, color 0.18s;
+    }
+    .vessel-btn .vessel-sub {
+      display: block; font-family: var(--mono); font-size: 10px;
+      color: var(--text-muted); margin-top: 3px; letter-spacing: 0.04em;
+    }
+    .vessel-btn.active {
+      border-color: var(--cyan); background: var(--cyan-dim); color: var(--text-bright);
+    }
+    .vessel-btn.active .vessel-sub { color: var(--cyan); }
+
+    /* ─── 缺失证据卡片 ─── */
+    .info-card.missing .info-card-header { color: #94a3b8; }
+    .missing-list { margin: 0; padding-left: 18px; }
+    .missing-list li { margin-bottom: 5px; }
+
+    /* ─── 真实 agent 轨迹面板 ─── */
+    .trace-panel {
+      margin-top: 14px; background: var(--surface);
+      border: 1px solid var(--border); border-radius: 10px; overflow: hidden;
+    }
+    .trace-summary {
+      display: flex; align-items: center; gap: 8px; width: 100%;
+      padding: 12px 14px; background: none; border: none; cursor: pointer;
+      color: var(--text); font-family: var(--mono); font-size: 11.5px;
+      letter-spacing: 0.06em; text-align: left;
+    }
+    .trace-summary:hover { background: var(--surface2); }
+    .trace-caret { color: var(--text-muted); transition: transform 0.2s; }
+    .trace-panel.open .trace-caret { transform: rotate(90deg); }
+    .trace-meta { margin-left: auto; color: var(--text-muted); font-size: 10.5px; }
+    .trace-body { display: none; padding: 4px 14px 14px; }
+    .trace-panel.open .trace-body { display: block; }
+    .trace-step {
+      display: flex; gap: 10px; padding: 8px 0;
+      border-top: 1px solid var(--border);
+      font-family: var(--mono); font-size: 11px; line-height: 1.5;
+    }
+    .trace-badge {
+      flex-shrink: 0; align-self: flex-start; padding: 2px 6px; border-radius: 4px;
+      font-size: 9.5px; letter-spacing: 0.05em; white-space: nowrap;
+    }
+    .trace-badge.prefetch { background: rgba(0,200,232,0.12); color: var(--cyan); }
+    .trace-badge.model_tool { background: rgba(240,180,41,0.12); color: var(--amber); }
+    .trace-badge.llm { background: rgba(148,163,184,0.12); color: #94a3b8; }
+    .trace-badge.rule { background: rgba(0,230,118,0.12); color: var(--green); }
+    .trace-main { flex: 1; min-width: 0; }
+    .trace-name { color: var(--text-bright); word-break: break-all; }
+    .trace-detail { color: var(--text-muted); word-break: break-all; }
+    .trace-err { color: var(--red); }
+    .trace-ms { flex-shrink: 0; color: var(--text-muted); }
+    .trace-note {
+      margin-top: 10px; padding-top: 10px; border-top: 1px solid var(--border);
+      color: var(--text-muted); font-size: 10.5px; line-height: 1.6;
+    }
+
     /* ─── Lang toggle ─── */
     .lang-toggle {
       position: fixed;
@@ -684,6 +761,20 @@
       <button class="toggle-btn" id="btn-ship" onclick="setTransport('ship')">🚢 船只</button>
     </div>
 
+    <div class="vessel-wrap" id="vessel-wrap">
+      <div class="section-label" id="vessel-label">船型</div>
+      <div class="vessel-btns">
+        <button class="vessel-btn active" id="btn-coastal" onclick="setVessel('coastal')">
+          <span class="vessel-name">近海游船</span>
+          <span class="vessel-sub">≥ 10.8 m/s 停航</span>
+        </button>
+        <button class="vessel-btn" id="btn-ropax" onclick="setVessel('ropax')">
+          <span class="vessel-name">跨海客滚船</span>
+          <span class="vessel-sub">≥ 17.2 m/s 停航</span>
+        </button>
+      </div>
+    </div>
+
     <div class="route-row">
       <div class="input-group">
         <div class="input-label">出发地</div>
@@ -729,7 +820,7 @@
   </div>
 
   <div class="footer">
-    VoyageGuard · Powered by Qwen AI<br>
+    VoyageGuard<br>
     仅供参考，请以航司 / 船务官方通知为准
   </div>
 </div>
@@ -737,6 +828,7 @@
 <script>
   // ── State ──
   let transport = 'plane';
+  let vesselType = 'coastal';
   let selectedDate = '';
   let currentLang = 'zh';
   let lastResultData = null;
@@ -767,7 +859,21 @@
       processing:         '正在处理请求...',
       go_yes:             '建议出行',
       go_no:              '不建议出行',
-      risk_label:         { LOW: '低风险', MEDIUM: '中风险', HIGH: '高风险' },
+      risk_label:         { LOW: '低风险', MEDIUM: '中风险', HIGH: '高风险', UNKNOWN: '证据不足' },
+      risk_code:          { LOW: 'LOW RISK', MEDIUM: 'MEDIUM RISK', HIGH: 'HIGH RISK', UNKNOWN: 'INSUFFICIENT DATA' },
+      vessel_label:       '船型',
+      vessel_coastal:     '近海游船',
+      vessel_coastal_sub: '≥ 10.8 m/s 停航',
+      vessel_ropax:       '跨海客滚船',
+      vessel_ropax_sub:   '≥ 17.2 m/s 停航',
+      missing_header:     '缺失的关键证据',
+      trace_header:       'Agent 执行轨迹',
+      trace_note:         '以上为本次请求的真实执行记录，非动画。确定性预取的是安全判定必需的证据，模型自主调用的是补充证据。',
+      kind_prefetch:      '确定性',
+      kind_model_tool:    '模型自主',
+      kind_llm:           '模型',
+      kind_rule:          '规则引擎',
+      loading_steps:      ['正在预取气象证据...', '正在校验证据充分性...', 'AI 正在比对安全红线...', '正在生成风险评估...'],
       override_text:      '规则引擎已校正',
       original_label:     '原始判断:',
       weather_header:     '气象数据概览',
@@ -777,12 +883,6 @@
       error_default:      '评估失败，请稍后重试',
       retry:              '重试',
       footer_line2:       '仅供参考，请以航司 / 船务官方通知为准',
-      step_parse:         '解析出行参数',
-      step_air_threshold: '比对航空安全阈值（侧风 / 能见度 / 雷暴）',
-      step_ship_threshold:'检测风力等级（近海 ≥6级 = 高风险）',
-      step_rule:          '规则引擎安全网校验',
-      step_report:        '生成综合风险评估报告',
-      step_search_suffix: '海事天气预警',
       lang_btn:           'EN',
     },
     en: {
@@ -809,7 +909,21 @@
       processing:         'Processing request...',
       go_yes:             'Go Ahead',
       go_no:              'Do Not Travel',
-      risk_label:         { LOW: 'Low Risk', MEDIUM: 'Medium Risk', HIGH: 'High Risk' },
+      risk_label:         { LOW: 'Low Risk', MEDIUM: 'Medium Risk', HIGH: 'High Risk', UNKNOWN: 'Insufficient Evidence' },
+      risk_code:          { LOW: 'LOW RISK', MEDIUM: 'MEDIUM RISK', HIGH: 'HIGH RISK', UNKNOWN: 'INSUFFICIENT DATA' },
+      vessel_label:       'Vessel Type',
+      vessel_coastal:     'Coastal Vessel',
+      vessel_coastal_sub: 'Suspend ≥ 10.8 m/s',
+      vessel_ropax:       'Ro-Pax Ferry',
+      vessel_ropax_sub:   'Suspend ≥ 17.2 m/s',
+      missing_header:     'Missing Required Evidence',
+      trace_header:       'Agent Execution Trace',
+      trace_note:         'This is the real execution record of this request, not an animation. Deterministic steps fetch the evidence the safety verdict requires; model-initiated steps gather supplementary evidence.',
+      kind_prefetch:      'DETERMINISTIC',
+      kind_model_tool:    'MODEL-CHOSEN',
+      kind_llm:           'MODEL',
+      kind_rule:          'RULE ENGINE',
+      loading_steps:      ['Pre-fetching weather evidence...', 'Checking evidence sufficiency...', 'AI comparing against safety limits...', 'Generating risk assessment...'],
       override_text:      'Rule Engine Override',
       original_label:     'Original:',
       weather_header:     'Weather Overview',
@@ -819,12 +933,6 @@
       error_default:      'Assessment failed, please try again',
       retry:              'Retry',
       footer_line2:       'For reference only. Always follow official airline / shipping notifications.',
-      step_parse:         'Parsing travel parameters',
-      step_air_threshold: 'Checking aviation thresholds (crosswind / visibility / thunderstorm)',
-      step_ship_threshold:'Checking wind force level (coastal ≥6 = high risk)',
-      step_rule:          'Rule engine safety net validation',
-      step_report:        'Generating comprehensive risk assessment',
-      step_search_suffix: 'maritime weather warning',
       lang_btn:           '中',
     },
   };
@@ -862,6 +970,12 @@
     document.getElementById('btn-plane').textContent = t('plane_btn');
     document.getElementById('btn-ship').textContent  = t('ship_btn');
 
+    document.getElementById('vessel-label').textContent = t('vessel_label');
+    document.querySelector('#btn-coastal .vessel-name').textContent = t('vessel_coastal');
+    document.querySelector('#btn-coastal .vessel-sub').textContent  = t('vessel_coastal_sub');
+    document.querySelector('#btn-ropax .vessel-name').textContent   = t('vessel_ropax');
+    document.querySelector('#btn-ropax .vessel-sub').textContent    = t('vessel_ropax_sub');
+
     const inputLabels = document.querySelectorAll('.input-label');
     if (inputLabels[0]) inputLabels[0].textContent = t('origin_label');
     if (inputLabels[1]) inputLabels[1].textContent = t('dest_label');
@@ -875,7 +989,7 @@
 
     document.querySelector('.retry-btn').textContent = t('retry');
     document.querySelector('.footer').innerHTML =
-      `VoyageGuard · Powered by Qwen AI<br>${t('footer_line2')}`;
+      `VoyageGuard<br>${t('footer_line2')}`;
 
     // Re-render result if visible
     if (document.getElementById('result').style.display !== 'none' && lastResultData) {
@@ -922,7 +1036,7 @@
   // ── Presets ──
   const PRESETS = {
     'high-air':  { origin: '上海', destination: '拉萨', transport: 'plane' },
-    'high-ship': { origin: '舟山', destination: '嵊泗', transport: 'ship'  },
+    'high-ship': { origin: '舟山', destination: '嵊泗', transport: 'ship', vessel: 'coastal' },
     'low':       { origin: '杭州', destination: '南京', transport: 'plane' },
   };
   function loadPreset(key) {
@@ -931,14 +1045,23 @@
     document.getElementById('origin').value      = p.origin;
     document.getElementById('destination').value = p.destination;
     setTransport(p.transport);
+    if (p.vessel) setVessel(p.vessel);
     updateSubmitState();
   }
 
-  // ── Transport ──
+  // ── Transport / Vessel ──
   function setTransport(tp) {
     transport = tp;
     document.getElementById('btn-plane').classList.toggle('active', tp === 'plane');
     document.getElementById('btn-ship').classList.toggle('active',  tp === 'ship');
+    // 船型只在海运场景下有意义 —— 两种船型的停航风速红线差了近一倍
+    document.getElementById('vessel-wrap').classList.toggle('visible', tp === 'ship');
+  }
+
+  function setVessel(v) {
+    vesselType = v;
+    document.getElementById('btn-coastal').classList.toggle('active', v === 'coastal');
+    document.getElementById('btn-ropax').classList.toggle('active',   v === 'ropax');
   }
 
   // ── Submit state ──
@@ -950,63 +1073,44 @@
   document.getElementById('origin').addEventListener('input', updateSubmitState);
   document.getElementById('destination').addEventListener('input', updateSubmitState);
 
-  // ── Agent step log ──
-  let stepTimers = [];
+  // ── 等待期进度提示 ──
+  // 这里【不】展示具体的工具名和参数：请求还在路上，前端并不知道 agent 实际调了什么。
+  // 真实轨迹在响应到达后由 renderTrace() 依据后端返回的 trace 渲染。
+  let progressTimer = null;
 
-  function buildSteps(origin, dest, mode) {
-    if (mode === 'plane') {
-      return [
-        { text: t('step_parse'),                                            delay: 300  },
-        { text: `get_weather_forecast("${origin}")`,                        delay: 900  },
-        { text: `get_weather_forecast("${dest}")`,                          delay: 3200 },
-        { text: t('step_air_threshold'),                                    delay: 5800 },
-        { text: t('step_rule'),                                             delay: 7800 },
-        { text: t('step_report'),                                           delay: 9200 },
-      ];
-    } else {
-      return [
-        { text: t('step_parse'),                                            delay: 300  },
-        { text: `get_weather_forecast("${dest}")`,                          delay: 900  },
-        { text: t('step_ship_threshold'),                                   delay: 3200 },
-        { text: `search_web("${dest} ${t('step_search_suffix')}")`,        delay: 5000 },
-        { text: t('step_rule'),                                             delay: 7800 },
-        { text: t('step_report'),                                           delay: 9200 },
-      ];
-    }
-  }
-
-  function startStepLog(origin, dest, mode) {
+  function startProgress() {
     const logEl = document.getElementById('step-log');
     logEl.innerHTML = '';
-    const steps = buildSteps(origin, dest, mode);
-    let lastEl = null;
+    const steps = t('loading_steps');
+    let i = 0;
 
-    steps.forEach((step) => {
-      const timer = setTimeout(() => {
-        if (lastEl) {
-          const icon = lastEl.querySelector('.step-icon');
-          const txt  = lastEl.querySelector('.step-text');
-          if (icon) { icon.className = 'step-icon done'; icon.textContent = '✓'; }
-          if (txt)  txt.className = 'step-text done';
-        }
-        const el = document.createElement('div');
-        el.className = 'step-item';
-        el.innerHTML = `
-          <div class="step-icon active">●</div>
-          <div class="step-text active">${escHtml(step.text)}</div>
-        `;
-        logEl.appendChild(el);
-        requestAnimationFrame(() => requestAnimationFrame(() => el.classList.add('visible')));
-        lastEl = el;
-        document.getElementById('loading-subtitle').textContent = step.text;
-      }, step.delay);
-      stepTimers.push(timer);
-    });
+    const push = () => {
+      const prev = logEl.lastElementChild;
+      if (prev) {
+        const icon = prev.querySelector('.step-icon');
+        const txt  = prev.querySelector('.step-text');
+        if (icon) { icon.className = 'step-icon done'; icon.textContent = '✓'; }
+        if (txt)  txt.className = 'step-text done';
+      }
+      const el = document.createElement('div');
+      el.className = 'step-item';
+      el.innerHTML = `
+        <div class="step-icon active">●</div>
+        <div class="step-text active">${escHtml(steps[i])}</div>
+      `;
+      logEl.appendChild(el);
+      requestAnimationFrame(() => requestAnimationFrame(() => el.classList.add('visible')));
+      document.getElementById('loading-subtitle').textContent = steps[i];
+      i += 1;
+      if (i >= steps.length) { clearInterval(progressTimer); progressTimer = null; }
+    };
+
+    push();
+    progressTimer = setInterval(push, 2600);
   }
 
-  function stopStepLog() {
-    stepTimers.forEach(timer => clearTimeout(timer));
-    stepTimers = [];
+  function stopProgress() {
+    if (progressTimer) { clearInterval(progressTimer); progressTimer = null; }
     document.querySelectorAll('#step-log .step-item').forEach(el => {
       const icon = el.querySelector('.step-icon');
       const txt  = el.querySelector('.step-text');
@@ -1037,7 +1141,7 @@
     hide('form-card'); hide('result'); hide('error');
     show('loading');
     document.getElementById('loading-subtitle').textContent = t('processing');
-    startStepLog(origin, dest, transport);
+    startProgress();
     document.getElementById('submit-btn').textContent = t('assessing');
     document.getElementById('submit-btn').disabled = true;
 
@@ -1045,14 +1149,16 @@
       const res  = await fetch('/api/assess', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ origin, destination: dest, date: selectedDate, transport, lang: currentLang }),
+        body: JSON.stringify({ origin, destination: dest, date: selectedDate, transport,
+                               vessel_type: transport === 'ship' ? vesselType : null,
+                               lang: currentLang }),
       });
       const data = await res.json();
       if (!res.ok) throw new Error(data.detail || t('error_default'));
-      stopStepLog();
+      stopProgress();
       setTimeout(() => renderResult(data), 350);
     } catch (err) {
-      stopStepLog();
+      stopProgress();
       hide('loading');
       document.getElementById('error-msg').textContent = err.message || t('error_default');
       show('error');
@@ -1064,12 +1170,17 @@
     lastResultData = data;
     hide('loading');
 
-    const level    = data.risk_level || 'MEDIUM';
-    const iconMap  = { LOW: '✓', MEDIUM: '⚠', HIGH: '✕' };
-    const codeMap  = { LOW: 'LOW RISK', MEDIUM: 'MEDIUM RISK', HIGH: 'HIGH RISK' };
-    const goText   = data.is_go_recommended ? t('go_yes') : t('go_no');
-    const goClass  = data.is_go_recommended ? 'yes' : 'no';
-    const riskLbl  = t('risk_label')[level] || escHtml(data.risk_label || level);
+    const level   = data.risk_level || 'MEDIUM';
+    const iconMap = { LOW: '✓', MEDIUM: '⚠', HIGH: '✕', UNKNOWN: '?' };
+    const riskLbl = t('risk_label')[level] || escHtml(data.risk_label || level);
+    const code    = t('risk_code')[level]  || level;
+
+    // 证据不足时不显示"建议/不建议出行" —— is_go_recommended 为 null 时
+    // 落成"不建议出行"就等于给了一个我们并没有依据的结论。
+    const goHtml = (data.is_go_recommended === null || data.is_go_recommended === undefined)
+      ? ''
+      : `<span class="go-badge ${data.is_go_recommended ? 'yes' : 'no'}">${
+           data.is_go_recommended ? t('go_yes') : t('go_no')}</span>`;
 
     const overrideHtml = data.rule_override ? `
       <div class="rule-override-badge">
@@ -1077,34 +1188,92 @@
         <div class="override-text">${t('override_text')} &nbsp;·&nbsp; ${t('original_label')} ${escHtml(data.original_risk_level || '')}</div>
       </div>` : '';
 
-    const html = `
+    const missing = data.missing_evidence || [];
+    const missingHtml = missing.length ? `
+      <div class="info-card missing">
+        <div class="info-card-header"><span>◌</span>&nbsp;${t('missing_header')}</div>
+        <div class="info-card-body">
+          <ul class="missing-list">${missing.map(m => `<li>${escHtml(m)}</li>`).join('')}</ul>
+        </div>
+      </div>` : '';
+
+    const cards = [
+      data.weather_summary   ? card('◈', t('weather_header'),  data.weather_summary, 'weather')  : '',
+      data.core_reason       ? card('◆', t('analysis_header'), data.core_reason,     'analysis') : '',
+      missingHtml,
+      data.alternative_advice ? card('◇', t('advice_header'),  data.alternative_advice, 'advice') : '',
+    ].join('');
+
+    document.getElementById('result').innerHTML = `
       <div class="risk-hero ${level}">
         <div class="risk-hero-top">
-          <div class="risk-icon">${iconMap[level]}</div>
-          <div class="risk-level-code">${codeMap[level]}</div>
+          <div class="risk-icon">${iconMap[level] || '?'}</div>
+          <div class="risk-level-code">${code}</div>
           <div class="risk-label-text">${riskLbl}</div>
-          <span class="go-badge ${goClass}">${goText}</span>
+          ${goHtml}
         </div>
         ${overrideHtml}
       </div>
-      <div class="info-card weather">
-        <div class="info-card-header"><span>◈</span>&nbsp;${t('weather_header')}</div>
-        <div class="info-card-body">${escHtml(data.weather_summary || '')}</div>
-      </div>
-      <div class="info-card analysis">
-        <div class="info-card-header"><span>◆</span>&nbsp;${t('analysis_header')}</div>
-        <div class="info-card-body">${escHtml(data.core_reason || '')}</div>
-      </div>
-      <div class="info-card advice">
-        <div class="info-card-header"><span>◇</span>&nbsp;${t('advice_header')}</div>
-        <div class="info-card-body">${escHtml(data.alternative_advice || '')}</div>
-      </div>
+      ${cards}
+      ${renderTrace(data)}
       <button class="submit-btn" onclick="resetToForm()" style="margin-top:4px">${t('reassess')}</button>
     `;
-
-    const resultEl = document.getElementById('result');
-    resultEl.innerHTML = html;
     show('result');
+  }
+
+  function card(icon, header, body, cls) {
+    return `
+      <div class="info-card ${cls}">
+        <div class="info-card-header"><span>${icon}</span>&nbsp;${header}</div>
+        <div class="info-card-body">${escHtml(body)}</div>
+      </div>`;
+  }
+
+  // ── 真实 agent 轨迹 ──
+  // 数据全部来自后端返回的 trace，每一步的耗时和成败都是真实发生过的。
+  function renderTrace(data) {
+    const trace = data.trace || [];
+    if (!trace.length) return '';
+    const meta = data.meta || {};
+
+    const rows = trace.map(step => {
+      const kind  = step.kind || 'llm';
+      const badge = t('kind_' + kind) || kind;
+      const args  = step.args && Object.keys(step.args).length
+        ? JSON.stringify(step.args) : '';
+      const detail = step.error
+        ? `<div class="trace-err">✕ ${escHtml(step.error)}</div>`
+        : (step.summary ? `<div class="trace-detail">${escHtml(step.summary)}</div>` : '');
+      return `
+        <div class="trace-step">
+          <span class="trace-badge ${kind}">${escHtml(badge)}</span>
+          <div class="trace-main">
+            <div class="trace-name">${step.ok ? '' : '⚠ '}${escHtml(step.name || '')}${
+              args ? ` <span class="trace-detail">${escHtml(args)}</span>` : ''}</div>
+            ${detail}
+          </div>
+          <span class="trace-ms">${step.latency_ms ? step.latency_ms + 'ms' : ''}</span>
+        </div>`;
+    }).join('');
+
+    const bits = [];
+    if (meta.model) bits.push(escHtml(meta.model));
+    if (meta.llm_rounds) bits.push(meta.llm_rounds + ' LLM');
+    if (meta.tool_calls !== undefined) bits.push(meta.tool_calls + ' tools');
+    if (meta.total_ms) bits.push((meta.total_ms / 1000).toFixed(1) + 's');
+
+    return `
+      <div class="trace-panel" id="trace-panel">
+        <button class="trace-summary" onclick="document.getElementById('trace-panel').classList.toggle('open')">
+          <span class="trace-caret">▸</span>
+          <span>${t('trace_header')} · ${trace.length}</span>
+          <span class="trace-meta">${bits.join(' · ')}</span>
+        </button>
+        <div class="trace-body">
+          ${rows}
+          <div class="trace-note">${t('trace_note')}</div>
+        </div>
+      </div>`;
   }
 
   function escHtml(str) {

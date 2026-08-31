@@ -1,0 +1,12 @@
+# 密钥绝不上传 —— 线上的 key 走 Vercel 项目环境变量
+.env
+.env.*
+
+# 评测与内部文档不进函数包
+evals/
+*.md
+.claude/
+Dockerfile
+__pycache__/
+*.pyc
+.DS_Store

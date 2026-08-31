@@ -1,158 +1,315 @@
-# VoyageGuard · 出行气象决策助手
+# VoyageGuard · 出行气象决策 Agent
 
-[![Hugging Face Spaces](https://img.shields.io/badge/🤗%20Hugging%20Face-Live%20Demo-blue)](https://huggingface.co/spaces/wenboxia/voyageguard)
+把实时气象数据与行业安全红线自动比对，给出「能不能走」的决策。飞机与船只两种场景，中英双语。
 
-AI Agent 驱动的气象风险决策工具，专注飞机与船只出行场景。将实时气象数据与行业安全红线自动比对，直接给出"能不能走"的决策建议。支持中英文双语切换。
+**这个项目真正想证明的不是「我写了个 ReAct agent」**，而是一件更具体的事：
+
+> 在一个安全相关的 AI 产品里，**哪些环节必须是确定性的，哪些才交给模型**——
+> 并且用分层评测证明这条边界画对了。
 
 ## 🚀 Live Demo
 
-**[→ 在线体验 · Hugging Face Spaces](https://huggingface.co/spaces/wenboxia/voyageguard)**
+<!-- 部署到 Vercel 后把 URL 填在这里 -->
+`（部署中）`
 
-无需部署，打开即用。
+## 目录
 
-## 功能演示
+- [核心设计：证据分层](#核心设计证据分层)
+- [Abstention：证据不足就不下结论](#abstention证据不足就不下结论)
+- [规则引擎 verifier](#规则引擎-verifier)
+- [三层评测](#三层评测)
+- [评测结果](#评测结果)
+- [评测设计教训](#评测设计教训)
+- [范围决策：明确不做什么](#范围决策明确不做什么)
+- [已知取舍](#已知取舍)
+- [快速启动](#快速启动)
 
-输入出发地、目的地、出行日期和交通方式，AI 自动调用天气工具和预警搜索，输出结构化风险评估：
+---
 
-- **低风险（绿）**：建议按原计划出行
-- **中风险（琥珀）**：大概率延误，建议关注动态
-- **高风险（红）**：极大概率停航/取消，建议启动备选
+## 核心设计：证据分层
 
-内置三个示例场景按钮，一键填入典型场景（航空高风险 / 海事高风险 / 低风险出行）。
+系统把证据分成两类，边界写死在代码里：
 
-界面右上角提供 **中/EN 语言切换**，切换后所有 UI 文字及 AI 输出均以对应语言展示。
+| | **必需证据** | **补充证据** |
+|---|---|---|
+| 谁去取 | `evidence.py` 确定性预取 | 模型自己决定调不调 |
+| 内容 | 两端风速 / 能见度；船舶再加两端有效浪高 | 气象预警搜索、第三地（经停/备降场）天气 |
+| 缺了怎么办 | **abstention，明确说"无法判断"** | 无所谓，结论正确性不依赖它 |
+| 进不进规则引擎 | 是，规则引擎只看它 | 否 |
 
-## 快速启动（三步）
+**为什么必需证据不交给模型去调工具**：AgentAbstain（[arXiv 2607.10059](https://arxiv.org/abs/2607.10059)，2026-07）
+实测最强模型在成对弃权任务上只有 **59.5%** 准确率，且论文发现**弃权能力与通用任务能力基本无关**——
+把模型换强并不能解决这个问题。安全关键证据的获取，不能取决于模型这一次想不想调工具。
 
-**1. 安装依赖**
+模型的自由裁量空间仍然是真实的（它可以一次工具都不调直接下结论，也可以主动去查预警和第三地），
+只是这份自由不再承担安全责任。
+
+```
+POST /api/assess
+  ├─ evidence.build_evidence()   确定性预取 ── 港口白名单 → 坐标 → wttr.in + Open-Meteo Marine
+  ├─ 证据不足？ → 直接 abstain，跳过模型调用
+  ├─ agent.run_agent()           ReAct 循环 ── 模型可调补充证据工具
+  ├─ rules.evaluate()            verifier ── abstain / Override UP / Override DOWN
+  └─ 返回结论 + evidence + 真实 trace
+```
+
+### 真实执行轨迹
+
+结果页可以展开本次请求的**真实**执行记录：每一步的类型（确定性预取 / 模型自主 / 模型 / 规则引擎）、
+实际参数、实际耗时、成功还是失败。工具失败会显眼地标红，不会被吞掉。
+
+```
+确定性  resolve_location {"name":"上海","require_marine":true}   上海 via whitelist
+确定性  get_weather_forecast {"location":"31.36,121.68",...}     wind 9.2 m/s, vis 9.0 km    901ms
+确定性  get_marine_forecast  {"lat":31.36,"lon":121.68,...}      wave max 0.42 m             568ms
+模型    qwen:qwen-plus                                           输出最终结论               7309ms
+规则引擎 rule_engine                                             decision_source=llm → MEDIUM
+```
+
+配合 evidence 里每个数值都带的 `source` 与 `fetched_at`，每个结论都能追到**是哪个源、什么时候取的哪个数**。
+这正是 TelemetrySuffBench（[arXiv 2608.07899](https://arxiv.org/abs/2608.07899)）说的
+"explicit decision-to-provenance links"。
+
+---
+
+## Abstention：证据不足就不下结论
+
+`risk_level` 有第四种取值 **`UNKNOWN`**。触发时前端显示石板灰的「证据不足」，
+**不显示出行建议徽章**（`is_go_recommended` 为 `null`——没有依据就不能落成"不建议出行"），
+并列出到底缺了什么、该去查哪个官方渠道。
+
+触发条件（任一命中）：
+
+- 出行日期超出可用预报范围
+- 任一端大气数据不可得，或缺必需字段（航空还要求能见度——那是硬红线，缺了就不能排除高风险）
+- 船舶出行且任一端拿不到浪高：坐标解析失败、回验判定非海域、或海洋 API 挂了
+
+**判定权在规则引擎，不在模型。** system prompt 里也给了模型一个出口
+（Anthropic 评测指南：*"give the LLM a way out, like providing an instruction to return 'Unknown'
+when it doesn't have enough information"*），但那只是第二道保险。
+
+这条修的是真实漏洞，不是知识点：改之前，数据缺失时代码默认 `visibility_km=999`、`wind=0`，
+也就是**「缺数据 = 安全」**。对一个安全相关产品，这是最坏的默认值。
+
+---
+
+## 规则引擎 verifier
+
+站在模型循环之外的一层，做三件事：
+
+- **Abstention**：证据不足 → `UNKNOWN`，优先于一切
+- **Override UP**：气象数据越过硬红线但 LLM 判低了（包括模型弃权）→ 强制升级
+- **Override DOWN**：LLM 判了 `HIGH` 但结构化指标不支持 → 降级。**只对 HIGH 生效**——
+  `MEDIUM` 代表 LLM 对多因素边缘组合（如接近阈值的风速叠加雷暴）的综合判断，
+  硬阈值捕获不了，应予保留
+
+输出 `decision_source` 字段透出走了哪条路径：`llm` / `rule_override_up` / `rule_override_down` /
+`rule_only` / `llm_abstain` / `abstain_insufficient_evidence`。
+
+### 安全红线
+
+**航空**：持续风速 ≥ 15 m/s → 高风险；能见度 < 0.4 km → 高风险；雷暴 → 至少中风险
+
+**海事**（按船型分档，因为两种船的停航红线差了近一倍）：
+
+| | 近海游船 | 跨海客滚船 |
+|---|---|---|
+| 风速 高风险 | ≥ 10.8 m/s（6 级） | ≥ 17.2 m/s（8 级） |
+| 风速 中风险 | ≥ 8.0 m/s（5 级） | ≥ 10.8 m/s（6 级） |
+| 有效浪高 高风险 | > 2.5 m | > 2.5 m |
+| 有效浪高 中风险 | ≥ 1.5 m | ≥ 1.5 m |
+
+阈值语义是严格的：`≥` 表示边界值本身触发，`>` 表示不触发，禁止四舍五入。
+评测里用 14.9 / 15.0 / 15.1 m/s 三连测验证精度。
+
+**为什么不直接用规则引擎替代 LLM**：规则引擎只处理有明确阈值的硬红线。
+灰色地带（多因素叠加、气象文字描述的解读、把专业数据翻译成人话、给可落地的备选方案）
+仍然由 LLM 负责。
+
+---
+
+## 三层评测
+
+```bash
+python -m evals.l3_sufficiency    # 确定性断言，零 token   ← 改动后先跑这个
+python -m evals.l2_integration    # 真实网络 + 真实模型
+python -m evals.l1_reasoning      # 38 条用例 × N 个模型横评
+python -m evals.run_all           # L3 → L2 串跑；--with-l1 带上横评
+```
+
+| 层 | 测什么 | 隔离掉什么 | 代价 |
+|---|---|---|---|
+| **L1 推理层** | 给定数据下 LLM 的判断质量 | 网络、数据源、真实世界波动 | 花 token，几分钟 |
+| **L2 集成层** | 端到端结论是否成立、自洽 | 无（就是要真实） | 花 token + 网络，~60s |
+| **L3 数据充分性层** | 该有的数据到底拿到没有 | LLM 完全不参与 | 零 token，~20s |
+
+**为什么不能互相替代**：L1 可以 100% 而 L3 是 0%。这不是假设——见下一节。
+
+- **L1**（38 条标注用例，工具全 mock）：模型横评、边界精度、规则引擎增益。
+  灰色地带用例标 `acceptable` 多值，避免把 prompt 的固有模糊性误计为模型错误。
+  含 6 条弃权用例，分别统计「规则门是否正确弃权」与「模型自己是否提出 UNKNOWN」。
+- **L2**（真实工具调用）：断言全是**不变量**而非固定风险等级——真实天气每天在变，
+  把等级钉死必然天天红。包括：schema 合法、证据带 `source`/`fetched_at`、
+  **拿返回的 evidence 重跑规则引擎结论必须自洽**、内陆当船走必须弃权、
+  日期超范围必须弃权、**故障注入**（把海洋 API 指向不可达主机）后必须弃权而不是静默给低风险。
+- **L3**（确定性断言，不调 LLM、不需要 API Key）：白名单每个港口都能取到浪高、
+  内陆对照点必须取不到（确认判别器有判别力）、风速能见度可得且能按日期精确对齐。
+
+三层都遵守 Anthropic 评测指南的一条警告：**不评工具调用顺序**——
+原文说这种做法*"too rigid and results in overly brittle tests, as agents regularly find
+valid approaches that eval designers didn't anticipate"*，要 grade what the agent produced,
+not the path it took。L3 测的是「拿到数据没有」这个能力，不是「按什么顺序调」。
+
+---
+
+## 评测结果
+
+### L1 推理层（38 条标注用例，工具全 mock，2026-08-31）
+
+| 模型 | LLM 准确率 | 安全网后 | 提升 | 主动弃权率 | JSON 合规 | 平均耗时 |
+|---|---|---|---|---|---|---|
+| **deepseek-v4-pro** ✓ 生产 | **92.1%** | **100.0%** | +7.9pp | 50.0% | 100% | 11.9s |
+| kimi-k3 | 89.5% | **100.0%** | +10.5pp | 33.3% | 100% | 32.7s |
+| glm-5 | 71.1% | **100.0%** | +28.9pp | 16.7% | 84.2% | 19.5s |
+| qwen-plus | 71.1% | 97.4% | +26.3pp | 0.0% | 100% | 5.8s |
+
+选型结论：**deepseek-v4-pro**。它自己判得最准（92.1%），JSON 合规 100%，
+安全网后满分，11.9s 在 25s 预算内。qwen-plus 快一倍但裸判准确率低 21pp——
+意味着它更依赖安全网兜底，而安全网只覆盖有明确阈值的硬红线，灰色地带仍然得靠模型。
+
+> 复现：`python -m evals.l1_reasoning`。配了 Key 的 provider 才会跑，其余自动跳过。
+> model id 都是探活确认过的现役版本（Moonshot 的 `moonshot-v1-*` 已全部下线，
+> DeepSeek 现役是 v4 系列）——换代时用 `client.models.list()` 重新确认。
+
+### 最值得注意的一个数字：四家模型的主动弃权率全部低于 50%
+
+6 条证据有洞的用例（浪高拿不到、能见度拿不到、日期超范围、数据源挂掉……），
+system prompt 明确写了「证据不足时输出 UNKNOWN，宁可说不知道，不要猜一个等级」，
+证据 JSON 里那些字段也明明白白是 `null`。四家模型合计 24 次弃权机会，**错过 18 次**：
+
+| | qwen-plus | glm-5 | kimi-k3 | deepseek-v4-pro |
+|---|---|---|---|---|
+| 主动弃权率 | 0.0% | 16.7% | 33.3% | 50.0% |
+
+而且——**18 次错过，18 次都判了 `LOW`**，一次 MEDIUM/HIGH 都没有。
+不是判错等级，是**把「数据缺失」一致地读成了「一切正常」**。
+四家不同实验室的模型，在这件事上犯的是同一个错。
+
+这正是改造前那版代码的行为（缺数据时默认 `visibility_km=999`、`wind=0`），
+也在本地复现了 AgentAbstain 的核心结论：**弃权能力与通用任务能力基本无关**——
+deepseek-v4-pro 在有数据的 32 条上只错 0 条，一到缺数据就掉到 50%。
+
+这 24 次最终全部正确，因为**弃权判定压根没交给模型**。
+这不是设计口号，是这两张表之间能直接读出来的差值。
+
+### 安全网的第二种救场：模型输出完全不可用时
+
+glm-5 有 6 条用例输出了无法解析的 JSON（合规率 84.2%）。这种情况下 `llm_output` 为 `None`，
+规则引擎走 `rule_only` 路径独立出结论——**6 条全部正确**，所以它的安全网后准确率仍是 100%。
+
+同样的路径在真实故障下也验证过：L2 的故障注入把所有 LLM key 换成无效值，
+系统照样返回合法结论，`decision_source=rule_only`，且模型调用失败如实进 trace 不被吞掉。
+
+### 唯一一条没救回来的用例
+
+用例 16（风速 14.9 m/s，刚低于 15 m/s 红线，期望 LOW）：qwen-plus 判了 MEDIUM，
+规则引擎推导为 LOW，但 **Override DOWN 只对 HIGH 生效，不干预 MEDIUM**——所以保持 MEDIUM，计为错误。
+（其余三家模型这条都判对了，所以只有 qwen 那一行不是 100%。）
+
+这是设计取舍的成本，不是 bug：MEDIUM 代表模型对多因素边缘组合的综合判断，硬阈值捕获不了。
+放宽成「MEDIUM 也降级」能救回这条，代价是丢掉规则引擎覆盖不到的灰色地带判断——
+在安全产品里，这个方向的取舍应该偏保守。
+
+### 历史结果（V1.6，仅供对照）
+
+改造前的 30 条用例集、三个模型：deepseek-v3 90.0% → 96.7%，qwen-plus 90.0% → 93.3%，
+hunyuan-turbos 73.3% → 86.7%（+13.3pp）。
+
+**这些数字是真的，但它们验证的是规则引擎的逻辑，不是数据管线**——原因见下一节。
+新旧两版用例集不可直接比较：新版把浪高换成了结构化字段，并新增了船型对照与弃权用例。
+
+---
+
+## 评测设计教训
+
+这一版最值得写下来的一条：
+
+> 我的评测把工具调用全 mock 掉，为的是隔离推理能力——代价是把数据管线的洞藏了起来。
+> **评测隔离得越干净，越容易漏掉集成层的问题。** 所以改成了三层评测。
+
+具体发生了什么：上一版的海事浪高判定，是用正则 `(?:有效浪高|浪高)\s*([\d.]+)\s*米`
+**从天气描述文本里抠中文**。而气象数据源（wttr.in）压根不返回任何海洋字段——
+所以浪高在生产环境恒为 `None`，两条浪高规则从不触发，船舶的 Override DOWN 也永远不生效。
+
+为什么半年没被发现：mock 数据里写死了 `description="大浪，有效浪高 3.0 米，涌浪发展"`，
+正好喂给那个正则。于是 20 条涉浪用例全过。**96.7% 那个数字是真的，
+但它验证的是规则引擎的逻辑，不是数据管线。**
+
+这一版把浪高换成了结构化字段（Open-Meteo Marine API 的 `wave_height`），
+那条作弊路径连存在的可能都没有了；同时新增的 L3 层会在 20 秒内、
+不花一分钱 token 地把这类洞暴露出来。
+
+这条呼应 Anthropic 评测指南的核心主张——没有任何单一评测层能抓住所有问题，
+要把自动评测、生产监控、A/B 和人工审查组合起来用（原文用了瑞士奶酪模型作类比）。
+
+---
+
+## 范围决策：明确不做什么
+
+| 不做 | 理由 |
+|---|---|
+| **memory / 上下文压缩 / compaction** | 这是单轮决策查询：用户填表 → 拿一个结论。天然没有长程任务，没有需要跨轮记住的状态。加进来只是堆名词 |
+| **multi-agent / subagent** | 任务是「取两三处数据 → 比对阈值 → 出结论」。拆成多个 agent 只增加协调开销和失败面 |
+| **RAG** | 规则总量不到 300 字，塞进 system prompt 秒级生效。这个体量上向量检索是负收益 |
+| **SSE 流式轨迹** | 演示观感更好，但 Vercel serverless 上要多一层适配、代理缓冲可能让线上 demo 卡住。收益不值这个线上翻车风险，改为响应到达后渲染真实轨迹 |
+
+判断「什么该用 AI 做、什么不该」本身就是这个项目要展示的能力之一。
+
+---
+
+## 已知取舍
+
+写在这里而不是偷偷藏着：
+
+- **浪高红线不分船型**。手上的规则来源只给了分船型的**风速**红线，没给分船型的浪高红线。
+  不编造数字——风速按船型分档，浪高两种船型共用 2.5 / 1.5 m
+- **航空「侧风」用持续风速近似**。没有跑道方位就算不出真侧风
+- **阵风已采集但不作红线判据**。`max_gust_ms` 在 evidence 里透出、也提供给模型作灰色地带参考，
+  但阈值口径是持续风速，doc 和 code 保持一致
+- **限流是 best-effort**。内存实现，在 serverless 上按实例隔离，只能挡住单实例内的连续爆刷。
+  真正的限流需要外部存储（KV / Redis），超出本项目范围
+- **预警搜索可能在云端失效**。DDGS 从数据中心 IP 走 DuckDuckGo 大概率被限流。
+  因为它被设计为**补充证据**（不进 abstention 门），失败不影响结论正确性，
+  只会在 trace 里如实显示为失败
+- **预报范围只有 3 天**。wttr.in 只给 today / +1 / +2，超出范围走 abstention 而不是外推
+
+---
+
+## 快速启动
+
 ```bash
 pip install -r requirements.txt
-```
-
-**2. 配置 API Key**
-```bash
 echo "DASHSCOPE_API_KEY=your_key_here" > .env
-```
-
-**3. 启动服务**
-```bash
 uvicorn app:app --reload
 ```
 
-打开浏览器访问 http://localhost:8000
+打开 http://localhost:8000
+
+支持四家模型，`VOYAGEGUARD_PROVIDER` 切换（`qwen` / `deepseek` / `kimi` / `glm`），
+每家的 model id 可用 `VOYAGEGUARD_MODEL_<PROVIDER>` 覆盖，都不用改代码。
+
+### 部署
+
+Vercel 的 Python framework preset 自动识别项目根 `app.py` 里的顶层 `app` 作为 ASGI 入口，
+不需要 `api/` 目录。推 GitHub 即自动部署，环境变量配在 Vercel 项目设置里。
+
+`Dockerfile` 保留给自托管场景（端口 7860）。
 
 ## 技术栈
 
-- 后端：FastAPI + Python
-- LLM：DeepSeek-V3（via Dashscope OpenAI 兼容接口）
-- 气象数据：wttr.in（免费，无需 Key）
-- 搜索：DDGS（DuckDuckGo，免费，无需 Key）
-- 前端：纯 HTML/CSS/JS 单文件，Mission-Critical Operations Center 风格
-- 部署：Hugging Face Spaces（Docker runtime）
-
-## AI 系统设计
-
-### Agent 架构（ReAct 模式）
-
-模型自主决定调用哪些工具、调用几次：
-
-```
-航空场景：查出发地天气 → 查目的地天气 → 比对规则 → 输出（2次调用）
-航海场景：查目的地天气 → 发现风力偏高 → 追加搜索预警 → 综合研判（3次调用）
-```
-
-安全阀：最大工具调用次数 5 次，超过后强制输出当前信息的评估结果。
-
-### 规则引擎安全网（V1.5）
-
-LLM 判断结果经过 Python 硬编码规则做二次校验：
-
-```
-用户请求 → ReAct Agent（LLM + 工具调用）→ LLM 输出 JSON
-                                              ↓
-                              rule_validator（Python 硬规则）
-                                              ↓
-                              最终结果（可能含 rule_override: true）
-```
-
-- **Override UP**：气象数据明确越过硬红线（如风速 ≥ 15 m/s），但 LLM 保守判了低风险 → 强制升级，同步将 `is_go_recommended` 置为 `false`
-- **Override DOWN**：所有结构化指标均低于触发阈值，但 LLM 判了 **HIGH** → 降级。**仅对 HIGH 生效，不干预 MEDIUM**——MEDIUM 代表 LLM 对多因素边缘组合（如冻雨 + 接近阈值的能见度）的综合判断，硬阈值无法捕获，应予保留
-- 输出字段 `rule_override: true/false` 明确告知是否发生了规则校正，`is_go_recommended` 随最终风险等级同步更新
-
-**为什么不直接用规则引擎替代 LLM？**
-规则引擎只处理"有明确阈值的硬红线"——灰色地带（多因素叠加、气象文字描述判断）仍由 LLM 负责，保留了 Agent 对复杂场景的灵活性。
-
-### 安全规则知识库
-
-| 场景 | 红线 | 判定 |
-|---|---|---|
-| 航空 | 侧风 > 15 m/s | 高风险 |
-| 航空 | 能见度 < 0.4 km | 高风险 |
-| 航空 | 起降地有雷暴 | 至少中风险 |
-| 近海游船 | 阵风 ≥ 6 级（10.8 m/s） | 高风险 |
-| 跨海客滚船 | 阵风 ≥ 8 级（17.2 m/s） | 高风险 |
-| 海事 | 有效浪高 > 2.5 m | 高风险 |
-| 海事 | 浪高 1.5-2.5 m 或风力 5-6 级 | 中风险 |
-
-### 双语支持
-
-- 前端 UI 右上角切换按钮（中 / EN）
-- 切换后同步传递 `lang` 字段至后端
-- 后端根据 `lang` 调整：用户问句语言、System Prompt 语言指令、规则引擎 override 提示文字
-- LLM 的所有输出字段（`weather_summary`、`core_reason`、`alternative_advice`、`risk_label`）随之切换为英文
-
-### 防刷保护
-
-内存级 Rate Limiting：每 IP 每小时最多 20 次请求，超出返回 HTTP 429。
-
-## 模型横评（Eval）
-
-项目包含 `eval.py`，30 条标注测试用例，覆盖边界值、灰色地带、多因素叠加场景。全部 mock 工具执行，测试纯 LLM 推理能力。
-
-### 最新结果（V1.6：LLM + 规则引擎安全网）
-
-| 模型 | LLM 准确率 | 安全网后 | 提升 | JSON 合规率 | 平均响应时间 |
-|---|---|---|---|---|---|
-| **deepseek-v3-250324** ✓ | 90.0% | **96.7%** | +6.7% | 100% | 7.4s |
-| qwen-plus | 90.0% | 93.3% | +3.3% | 100% | 9.0s |
-| hunyuan-turbos-latest | 73.3% | 86.7% | +13.3% | 100% | 14.1s |
-
-综合准确率与响应时延，选定 **DeepSeek-V3** 作为生产模型（96.7%，均速 7.4s）。规则引擎将最弱模型（Hunyuan）准确率从 73.3% 拉升至 86.7%（+13.3%），体现了"LLM 负责灰色地带，硬规则守住红线"的架构分层价值。
-
-> 运行 `python eval.py` 获取最新结果
-
-### 评测亮点
-
-- **灰色地带评分**：对"雷暴 + 风速接近但未超红线"等本身存在合理争议的用例，标注 `acceptable_levels: ["MEDIUM", "HIGH"]`，命中任一值均算正确，避免把 prompt 模糊性误计为模型错误
-- **硬判 vs 灰色区分**：每条用例结果标注"硬判"或"灰色"，方便分析失败原因
-- **多模型对比**：同一用例集同时测三个模型，定位各自失败模式（精度不足 / 语义理解差异 / 保守偏差）
-
-## 部署到 Hugging Face Spaces
-
-本项目已部署至 HF Spaces Docker runtime：https://huggingface.co/spaces/wenboxia/voyageguard
-
-自行部署步骤：
-1. 在 huggingface.co 创建新 Space，选择 **Docker** runtime
-2. 在 Space 的 **Settings → Repository secrets** 中添加 `DASHSCOPE_API_KEY`
-3. `git remote add origin https://huggingface.co/spaces/<用户名>/<space名>`
-4. `git push`，HF 自动构建 Docker 镜像，约 2-3 分钟后上线
-
-## 切换为本地 Ollama 模型
-
-修改 `app.py` 中的 client 配置（注释已标注）：
-```python
-client = OpenAI(api_key="ollama", base_url="http://localhost:11434/v1")
-MODEL = "qwen2.5:7b"
-```
-
-## 后续演进方向（V2）
-
-- 接入专业气象 API（OpenWeatherMap、StormGlass）替代 wttr.in
-- 规则库扩展至不同船型/机场，迁移至 RAG 架构
-- 增加"出发前提醒"（邮件/推送）
-- 接入航班动态 API，交叉验证 AI 判断 vs 实际航班状态
-- 历史准确率看板（追踪 AI 判断 vs 实际结果，持续优化 prompt）
+FastAPI · OpenAI 兼容 SDK（Qwen / DeepSeek / Kimi / GLM）· wttr.in · Open-Meteo Marine & Geocoding ·
+DDGS · 纯单文件前端（无构建步骤）· Vercel
 
 ## License
 
-MIT © 2025 wenboxia
+MIT © 2026 wenboxia

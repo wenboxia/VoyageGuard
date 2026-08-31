@@ -1,0 +1,472 @@
+"""
+evidence.py — 确定性证据管线
+
+核心设计：把证据分成两类，边界写死在代码里。
+
+  必需证据（本模块）—— 确定性预取，不经模型自由裁量。
+      出发地/目的地大气数据；transport=ship 时再加两端浪高。
+      规则引擎与 abstention 门【只看】这里产出的 evidence bundle。
+
+  补充证据（agent.py 的工具表）—— 模型自由裁量，失败不影响结论正确性。
+
+为什么必需证据不能交给模型去调工具：AgentAbstain (arXiv 2607.10059) 实测
+最强模型在成对弃权任务上只有 59.5% 准确率，且弃权能力与通用任务能力基本无关。
+安全关键证据的获取不能取决于模型这一次想不想调工具。
+
+数据源：
+  - wttr.in                    大气（风速、阵风、能见度、天气描述）
+  - Open-Meteo Marine API      有效浪高、波周期、涌浪
+  - Open-Meteo Geocoding API   白名单未命中时的兜底坐标解析（必须经海洋 API 回验）
+"""
+
+import datetime
+import json
+import os
+import time
+import urllib.parse
+from dataclasses import dataclass, field
+
+import requests
+
+# base url 走环境变量，L2 集成测试可以指向不可达主机做故障注入
+WTTR_BASE = os.getenv("VOYAGEGUARD_WTTR_BASE", "https://wttr.in")
+MARINE_BASE = os.getenv("VOYAGEGUARD_MARINE_BASE", "https://marine-api.open-meteo.com/v1/marine")
+GEOCODE_BASE = os.getenv("VOYAGEGUARD_GEOCODE_BASE", "https://geocoding-api.open-meteo.com/v1/search")
+
+HTTP_TIMEOUT = float(os.getenv("VOYAGEGUARD_HTTP_TIMEOUT", "15"))
+
+# wttr.in 只提供 today / +1 / +2，与前端三个日期按钮一致
+FORECAST_HORIZON_DAYS = 3
+
+
+HTTP_RETRIES = int(os.getenv("VOYAGEGUARD_HTTP_RETRIES", "2"))
+
+
+def _get_json(url: str) -> dict:
+    """带退避重试的 GET。免费气象 API 在并发下会瞬时限流，重试比放大并发划算。"""
+    last: Exception | None = None
+    for attempt in range(HTTP_RETRIES + 1):
+        try:
+            resp = requests.get(url, timeout=HTTP_TIMEOUT)
+            resp.raise_for_status()
+            return resp.json()
+        except Exception as e:      # noqa: BLE001 — 上层把失败转成 abstention，不是崩溃
+            last = e
+            if attempt < HTTP_RETRIES:
+                time.sleep(0.6 * (attempt + 1))
+    raise last if last else RuntimeError("unknown http error")
+
+
+# ---------------------------------------------------------------------------
+# 港口白名单 —— 契约层
+# ---------------------------------------------------------------------------
+# 坐标全部经 evals/l3_sufficiency.py 实测确认能从 Open-Meteo Marine 取到浪高。
+# 内河上游港口（广州、南通）已下移到河口/外港，否则海洋 API 返回全 null。
+PORTS: dict[str, tuple[float, float]] = {
+    "上海": (31.36, 121.68),
+    "舟山": (30.00, 122.11),
+    "嵊泗": (30.73, 122.45),
+    "普陀山": (30.01, 122.39),
+    "宁波": (29.87, 121.98),
+    "三亚": (18.23, 109.51),
+    "海口": (20.03, 110.29),
+    "徐闻": (20.23, 110.17),
+    "厦门": (24.45, 118.09),
+    "金门": (24.43, 118.32),
+    "泉州": (24.81, 118.68),
+    "大连": (38.92, 121.65),
+    "长海": (39.27, 122.59),
+    "烟台": (37.55, 121.39),
+    "蓬莱": (37.83, 120.76),
+    "长岛": (37.92, 120.73),
+    "威海": (37.51, 122.12),
+    "刘公岛": (37.51, 122.18),
+    "青岛": (36.06, 120.32),
+    "朝连岛": (36.10, 120.85),
+    "日照": (35.38, 119.55),
+    "连云港": (34.75, 119.45),
+    "南通": (32.13, 121.62),      # 吕四港
+    "福州": (26.02, 119.62),
+    "平潭": (25.50, 119.79),
+    "温州": (27.94, 120.83),
+    "洞头": (27.83, 121.15),
+    "汕头": (23.34, 116.75),
+    "深圳": (22.49, 113.90),
+    "蛇口": (22.47, 113.90),
+    "广州": (22.72, 113.62),      # 南沙港
+    "珠海": (22.21, 113.56),
+    "外伶仃岛": (22.10, 114.03),
+    "香港": (22.29, 114.17),
+    "澳门": (22.15, 113.55),
+    "湛江": (21.18, 110.40),
+    "北海": (21.46, 109.10),
+    "涠洲岛": (21.03, 109.12),
+    "天津": (38.98, 117.79),
+    "秦皇岛": (39.91, 119.62),
+}
+
+# 常见别名 / 英文名 → 白名单主键
+PORT_ALIASES: dict[str, str] = {
+    "shanghai": "上海", "zhoushan": "舟山", "shengsi": "嵊泗", "ningbo": "宁波",
+    "sanya": "三亚", "haikou": "海口", "xiamen": "厦门", "kinmen": "金门",
+    "quanzhou": "泉州", "dalian": "大连", "yantai": "烟台", "penglai": "蓬莱",
+    "weihai": "威海", "qingdao": "青岛", "rizhao": "日照", "lianyungang": "连云港",
+    "nantong": "南通", "fuzhou": "福州", "pingtan": "平潭", "wenzhou": "温州",
+    "shantou": "汕头", "shenzhen": "深圳", "guangzhou": "广州", "zhuhai": "珠海",
+    "hongkong": "香港", "hong kong": "香港", "macau": "澳门", "macao": "澳门",
+    "zhanjiang": "湛江", "beihai": "北海", "tianjin": "天津",
+    "qinhuangdao": "秦皇岛", "xuwen": "徐闻",
+    "上海港": "上海", "洋山港": "上海", "吴淞口": "上海", "南沙港": "广州",
+    "吕四港": "南通", "定海": "舟山", "沈家门": "舟山",
+}
+
+
+def _normalize(name: str) -> str:
+    return (name or "").strip().lower().replace(" ", "").replace("市", "").replace("港", "")
+
+
+def _lookup_port(name: str) -> tuple[str, float, float] | None:
+    """白名单查找。返回 (规范名, lat, lon)，未命中返回 None。"""
+    raw = (name or "").strip()
+    if raw in PORTS:
+        return raw, *PORTS[raw]
+    norm = _normalize(raw)
+    for alias, canonical in PORT_ALIASES.items():
+        if _normalize(alias) == norm:
+            return canonical, *PORTS[canonical]
+    for canonical in PORTS:
+        if _normalize(canonical) == norm:
+            return canonical, *PORTS[canonical]
+    return None
+
+
+# ---------------------------------------------------------------------------
+# 数据结构
+# ---------------------------------------------------------------------------
+@dataclass
+class Missing:
+    """一条缺失证据。code 供程序判断，location/role 供人阅读。"""
+    code: str          # date_out_of_range | atmos_unavailable | wind_missing
+                       # | visibility_missing | wave_height_missing | location_unresolved
+    role: str          # origin | destination
+    location: str
+    detail: str = ""
+
+    def as_dict(self) -> dict:
+        return {"code": self.code, "role": self.role, "location": self.location, "detail": self.detail}
+
+
+@dataclass
+class TraceStep:
+    """确定性预取的一步，进入最终 trace（kind="prefetch"）。"""
+    name: str
+    args: dict
+    ok: bool
+    latency_ms: int
+    summary: str = ""
+    error: str | None = None
+
+    def as_dict(self) -> dict:
+        return {
+            "kind": "prefetch", "name": self.name, "args": self.args, "ok": self.ok,
+            "latency_ms": self.latency_ms, "summary": self.summary, "error": self.error,
+        }
+
+
+@dataclass
+class EvidenceBundle:
+    target_date: str
+    transport: str
+    vessel_type: str | None
+    locations: dict = field(default_factory=dict)
+    missing: list[Missing] = field(default_factory=list)
+    trace: list[TraceStep] = field(default_factory=list)
+    quality: str = "full"          # full | partial
+
+    @property
+    def ok(self) -> bool:
+        return not self.missing
+
+    def as_dict(self) -> dict:
+        return {
+            "target_date": self.target_date,
+            "transport": self.transport,
+            "vessel_type": self.vessel_type,
+            "locations": self.locations,
+            "sufficiency": {
+                "ok": self.ok,
+                "quality": self.quality,
+                "missing": [m.as_dict() for m in self.missing],
+            },
+        }
+
+    @classmethod
+    def from_dict(cls, data: dict) -> "EvidenceBundle":
+        """从 API 响应里的 evidence 字段还原，供 L2 做自洽性复核。"""
+        suff = data.get("sufficiency", {})
+        b = cls(
+            target_date=data.get("target_date", ""),
+            transport=data.get("transport", ""),
+            vessel_type=data.get("vessel_type"),
+            locations=data.get("locations", {}),
+            quality=suff.get("quality", "full"),
+        )
+        b.missing = [Missing(m.get("code", ""), m.get("role", ""), m.get("location", ""),
+                             m.get("detail", "")) for m in suff.get("missing", [])]
+        return b
+
+    def for_model(self) -> str:
+        """喂给 LLM 的结构化证据（不含 trace，避免污染上下文）。"""
+        return json.dumps(
+            {"target_date": self.target_date, "locations": self.locations},
+            ensure_ascii=False, indent=2,
+        )
+
+
+def _now_iso() -> str:
+    return datetime.datetime.now(datetime.timezone.utc).isoformat(timespec="seconds")
+
+
+# ---------------------------------------------------------------------------
+# 坐标解析：白名单 → Geocoding（必须经海洋 API 回验）→ 失败
+# ---------------------------------------------------------------------------
+def _geocode(name: str) -> tuple[float, float, str] | None:
+    url = f"{GEOCODE_BASE}?{urllib.parse.urlencode({'name': name, 'count': 5, 'language': 'zh'})}"
+    try:
+        results = _get_json(url).get("results") or []
+    except Exception:
+        return None
+    if not results:
+        return None
+    # 同名地点很常见（实测搜"三亚"返回海南/广西/玉林三个），取人口最多的那个，
+    # 但这只是猜测——真正的保险是下面的海洋 API 回验。
+    best = max(results, key=lambda r: r.get("population", 0) or 0)
+    return float(best["latitude"]), float(best["longitude"]), best.get("name", name)
+
+
+def resolve_location(name: str, require_marine: bool) -> tuple[dict | None, Missing | None]:
+    """
+    require_marine=True 时必须解析出一个真实海域坐标，否则返回 Missing。
+    require_marine=False（航空）时解析不出也没关系——wttr.in 可以直接按地名查。
+    """
+    hit = _lookup_port(name)
+    if hit:
+        canonical, lat, lon = hit
+        return {"lat": lat, "lon": lon, "source": "whitelist", "matched_name": canonical}, None
+
+    if not require_marine:
+        return {"lat": None, "lon": None, "source": "name", "matched_name": name}, None
+
+    geo = _geocode(name)
+    if not geo:
+        return None, Missing("location_unresolved", "", name, "地名无法解析为坐标")
+
+    lat, lon, matched = geo
+    # 回验：海洋 API 对内陆点返回全 null，用这个行为确认解析结果确实落在海域。
+    # 兜底可以不准，但不能静默地不准。
+    probe, _ = fetch_marine(lat, lon, datetime.date.today().isoformat())
+    if probe is None:
+        return None, Missing(
+            "location_unresolved", "", name,
+            f"兜底解析到 ({lat:.2f}, {lon:.2f})，但该点取不到浪高数据，判定为非海域",
+        )
+    return {"lat": lat, "lon": lon, "source": "geocoding", "matched_name": matched}, None
+
+
+# ---------------------------------------------------------------------------
+# 单位换算
+# ---------------------------------------------------------------------------
+def kmh_to_ms(kmh: float) -> float:
+    return kmh / 3.6
+
+
+def ms_to_beaufort(ms: float) -> int:
+    thresholds = [0.3, 1.6, 3.4, 5.5, 8.0, 10.8, 13.9, 17.2, 20.8, 24.5, 28.5, 32.7]
+    for i, t in enumerate(thresholds):
+        if ms < t:
+            return i
+    return 12
+
+
+# ---------------------------------------------------------------------------
+# 大气数据（wttr.in），按目标日期精确对齐
+# ---------------------------------------------------------------------------
+def fetch_atmos(query: str, target_date: str) -> tuple[dict | None, str | None]:
+    """
+    query 可以是地名，也可以是 "lat,lon"（白名单命中时用坐标，保证与海洋数据同点位）。
+    返回 (atmos_dict, error)。atmos_dict 只包含 target_date 当天的数据。
+    """
+    url = f"{WTTR_BASE}/{urllib.parse.quote(query)}?format=j1"
+    try:
+        data = _get_json(url)
+    except Exception as e:
+        return None, f"wttr.in 请求失败: {e}"
+
+    days = data.get("weather", [])
+    available = [d.get("date", "") for d in days]
+    day = next((d for d in days if d.get("date") == target_date), None)
+    if day is None:
+        return None, f"date_out_of_range:{target_date} 不在预报范围 {available}"
+
+    hourly = day.get("hourly", [])
+
+    winds = [float(h.get("windspeedKmph", 0) or 0) for h in hourly]
+    gusts = [float(h.get("WindGustKmph", 0) or 0) for h in hourly]
+    max_wind_ms = round(kmh_to_ms(max(winds)), 1) if winds else None
+    max_gust_ms = round(kmh_to_ms(max(gusts)), 1) if any(gusts) else None
+
+    # wttr.in 用 visibility == 0 表示缺失，不是字面的 0 km
+    vis_valid = [float(h.get("visibility", 0) or 0) for h in hourly]
+    vis_valid = [v for v in vis_valid if v > 0]
+    min_vis_km = min(vis_valid) if vis_valid else None
+    quality = "full"
+
+    if min_vis_km is None and target_date == datetime.date.today().isoformat():
+        # 目标日就是今天时，可以退回实况观测值，但要标记为 partial
+        cur_vis = float(data.get("current_condition", [{}])[0].get("visibility", 0) or 0)
+        if cur_vis > 0:
+            min_vis_km = cur_vis
+            quality = "partial"
+
+    descs = []
+    for h in hourly:
+        dl = h.get("lang_zh") or h.get("weatherDesc") or []
+        if dl:
+            v = dl[0].get("value", "")
+            if v:
+                descs.append(v)
+    description = "、".join(dict.fromkeys(descs)) or "N/A"
+
+    return {
+        "date": target_date,
+        "max_wind_speed_ms": max_wind_ms,
+        "max_wind_beaufort": ms_to_beaufort(max_wind_ms) if max_wind_ms is not None else None,
+        "max_gust_ms": max_gust_ms,
+        "min_visibility_km": min_vis_km,
+        "max_temp_c": day.get("maxtempC"),
+        "min_temp_c": day.get("mintempC"),
+        "description": description,
+        "quality": quality,
+        "source": "wttr.in",
+        "fetched_at": _now_iso(),
+    }, None
+
+
+# ---------------------------------------------------------------------------
+# 海洋数据（Open-Meteo Marine）
+# ---------------------------------------------------------------------------
+def fetch_marine(lat: float, lon: float, target_date: str) -> tuple[dict | None, str | None]:
+    params = {
+        "latitude": lat, "longitude": lon,
+        "hourly": "wave_height,wave_period,swell_wave_height",
+        "start_date": target_date, "end_date": target_date,
+        "timezone": "auto",
+    }
+    url = f"{MARINE_BASE}?{urllib.parse.urlencode(params)}"
+    try:
+        data = _get_json(url)
+    except Exception as e:
+        return None, f"Open-Meteo Marine 请求失败: {e}"
+
+    if "error" in data:
+        return None, f"Open-Meteo Marine 返回错误: {data.get('reason')}"
+
+    hourly = data.get("hourly", {})
+    waves = [v for v in (hourly.get("wave_height") or []) if v is not None]
+    if not waves:
+        # 内陆点会走到这里 —— 全 null 是 Open-Meteo 对非海域的正常行为
+        return None, "该坐标无浪高数据（非海域或超出模式覆盖范围）"
+
+    periods = [v for v in (hourly.get("wave_period") or []) if v is not None]
+    swells = [v for v in (hourly.get("swell_wave_height") or []) if v is not None]
+
+    return {
+        "date": target_date,
+        "max_wave_height_m": round(max(waves), 2),
+        "mean_wave_height_m": round(sum(waves) / len(waves), 2),
+        "max_wave_period_s": round(max(periods), 1) if periods else None,
+        "max_swell_height_m": round(max(swells), 2) if swells else None,
+        "source": "open-meteo-marine",
+        "fetched_at": _now_iso(),
+    }, None
+
+
+# ---------------------------------------------------------------------------
+# 组装
+# ---------------------------------------------------------------------------
+def _timed(fn, *args):
+    t0 = time.perf_counter()
+    result, err = fn(*args)
+    return result, err, int((time.perf_counter() - t0) * 1000)
+
+
+def build_evidence(
+    origin: str,
+    destination: str,
+    target_date: str,
+    transport: str,
+    vessel_type: str | None = None,
+) -> EvidenceBundle:
+    """确定性预取两端的必需证据，并判定充分性。不调用 LLM。"""
+    bundle = EvidenceBundle(target_date=target_date, transport=transport, vessel_type=vessel_type)
+    need_marine = transport == "ship"
+
+    for role, name in (("origin", origin), ("destination", destination)):
+        entry: dict = {"name": name, "role": role, "errors": []}
+        bundle.locations[name] = entry
+
+        resolved, miss = resolve_location(name, require_marine=need_marine)
+        if miss is not None:
+            miss.role = role
+            bundle.missing.append(miss)
+            entry["errors"].append(miss.detail)
+            bundle.trace.append(TraceStep(
+                "resolve_location", {"name": name, "require_marine": need_marine},
+                False, 0, error=miss.detail))
+            continue
+
+        entry["resolved"] = resolved
+        bundle.trace.append(TraceStep(
+            "resolve_location", {"name": name, "require_marine": need_marine}, True, 0,
+            summary=f"{resolved['matched_name']} via {resolved['source']}"))
+
+        # 大气：白名单命中时用坐标查，保证与海洋数据同点位
+        query = (f"{resolved['lat']},{resolved['lon']}"
+                 if resolved.get("lat") is not None else name)
+        atmos, err, ms = _timed(fetch_atmos, query, target_date)
+        bundle.trace.append(TraceStep(
+            "get_weather_forecast", {"location": query, "date": target_date},
+            atmos is not None, ms,
+            summary=(f"wind {atmos['max_wind_speed_ms']} m/s, vis {atmos['min_visibility_km']} km"
+                     if atmos else ""),
+            error=err))
+
+        if atmos is None:
+            entry["errors"].append(err or "")
+            code = "date_out_of_range" if (err or "").startswith("date_out_of_range") else "atmos_unavailable"
+            bundle.missing.append(Missing(code, role, name, err or ""))
+        else:
+            entry["atmos"] = atmos
+            if atmos["quality"] == "partial":
+                bundle.quality = "partial"
+            if atmos["max_wind_speed_ms"] is None:
+                bundle.missing.append(Missing("wind_missing", role, name, "未取到风速"))
+            # 能见度是航空硬红线，缺了就不能排除 HIGH —— 不能默认为安全
+            if transport == "plane" and atmos["min_visibility_km"] is None:
+                bundle.missing.append(Missing("visibility_missing", role, name, "未取到能见度"))
+
+        if need_marine and resolved.get("lat") is not None:
+            marine, err, ms = _timed(fetch_marine, resolved["lat"], resolved["lon"], target_date)
+            bundle.trace.append(TraceStep(
+                "get_marine_forecast",
+                {"lat": resolved["lat"], "lon": resolved["lon"], "date": target_date},
+                marine is not None, ms,
+                summary=(f"wave max {marine['max_wave_height_m']} m" if marine else ""),
+                error=err))
+            if marine is None:
+                entry["errors"].append(err or "")
+                bundle.missing.append(Missing("wave_height_missing", role, name, err or ""))
+            else:
+                entry["marine"] = marine
+
+    return bundle
