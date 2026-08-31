@@ -11,3 +11,6 @@ start_prompt.md
 .claude/
 deploy-vercel.sh
 .vercel/
+.vercel
+uv.lock
+.python-version
