@@ -14,3 +14,4 @@ deploy-vercel.sh
 .vercel
 uv.lock
 .python-version
+pyproject.toml
