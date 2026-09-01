@@ -9,8 +9,10 @@
 
 ## 🚀 Live Demo
 
-<!-- 部署到 Vercel 后把 URL 填在这里 -->
-`（部署中）`
+**[→ voyageguard-two.vercel.app](https://voyageguard-two.vercel.app)**
+
+打开即用，无需部署。船舶场景建议试 `上海 → 舟山`；想看 abstention 第四态，
+把出发地/目的地填成内陆城市（如 `北京 → 西安`）再选「船只」。
 
 ## 目录
 
