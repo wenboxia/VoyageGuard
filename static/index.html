@@ -657,6 +657,33 @@
     .missing-list { margin: 0; padding-left: 18px; }
     .missing-list li { margin-bottom: 5px; }
 
+    /* ─── 触发的官方判据 ─── */
+    .trigger-item {
+      display: flex; gap: 9px; padding: 9px 0;
+      border-top: 1px solid var(--border);
+    }
+    .trigger-item:first-child { border-top: none; padding-top: 0; }
+    .trigger-cls {
+      flex-shrink: 0; align-self: flex-start; padding: 2px 7px; border-radius: 4px;
+      font-family: var(--mono); font-size: 9.5px; letter-spacing: 0.05em; white-space: nowrap;
+    }
+    .trigger-cls.REG  { background: rgba(255,64,96,0.12);  color: var(--red); }
+    .trigger-cls.WARN { background: rgba(240,180,41,0.12); color: var(--amber); }
+    .trigger-cls.PROD { background: rgba(148,163,184,0.14); color: #94a3b8; }
+    .trigger-main { flex: 1; min-width: 0; }
+    .trigger-text { line-height: 1.65; }
+    .trigger-src {
+      display: inline-block; margin-top: 3px;
+      font-family: var(--mono); font-size: 10.5px;
+      color: var(--text-muted); text-decoration: none; border-bottom: 1px dotted var(--text-muted);
+    }
+    .trigger-src:hover { color: var(--cyan); border-bottom-color: var(--cyan); }
+    .authority-note {
+      margin-top: 12px; padding: 10px 12px; border-radius: 7px;
+      background: var(--surface2); border-left: 2px solid var(--cyan);
+      font-size: 12.5px; line-height: 1.65; color: var(--text);
+    }
+
     /* ─── 真实 agent 轨迹面板 ─── */
     .trace-panel {
       margin-top: 14px; background: var(--surface);
@@ -762,15 +789,19 @@
     </div>
 
     <div class="vessel-wrap" id="vessel-wrap">
-      <div class="section-label" id="vessel-label">船型</div>
+      <div class="section-label" id="vessel-label">你坐的船大概是？（不确定就不用选）</div>
       <div class="vessel-btns">
-        <button class="vessel-btn active" id="btn-coastal" onclick="setVessel('coastal')">
-          <span class="vessel-name">近海游船</span>
-          <span class="vessel-sub">≥ 10.8 m/s 停航</span>
+        <button class="vessel-btn" id="btn-small" onclick="setVessel('small')">
+          <span class="vessel-name">小船 / 渡轮</span>
+          <span class="vessel-sub">几十人，开不上车</span>
         </button>
-        <button class="vessel-btn" id="btn-ropax" onclick="setVessel('ropax')">
-          <span class="vessel-name">跨海客滚船</span>
-          <span class="vessel-sub">≥ 17.2 m/s 停航</span>
+        <button class="vessel-btn" id="btn-large" onclick="setVessel('large')">
+          <span class="vessel-name">大船 / 客轮</span>
+          <span class="vessel-sub">能把车开上船</span>
+        </button>
+        <button class="vessel-btn active" id="btn-unknown" onclick="setVessel('unknown')">
+          <span class="vessel-name">不确定</span>
+          <span class="vessel-sub">按最严标准算</span>
         </button>
       </div>
     </div>
@@ -828,7 +859,7 @@
 <script>
   // ── State ──
   let transport = 'plane';
-  let vesselType = 'coastal';
+  let vesselType = 'unknown';
   let selectedDate = '';
   let currentLang = 'zh';
   let lastResultData = null;
@@ -861,11 +892,19 @@
       go_no:              '不建议出行',
       risk_label:         { LOW: '低风险', MEDIUM: '中风险', HIGH: '高风险', UNKNOWN: '证据不足' },
       risk_code:          { LOW: 'LOW RISK', MEDIUM: 'MEDIUM RISK', HIGH: 'HIGH RISK', UNKNOWN: 'INSUFFICIENT DATA' },
-      vessel_label:       '船型',
-      vessel_coastal:     '近海游船',
-      vessel_coastal_sub: '≥ 10.8 m/s 停航',
-      vessel_ropax:       '跨海客滚船',
-      vessel_ropax_sub:   '≥ 17.2 m/s 停航',
+      vessel_label:       '你坐的船大概是？（不确定就不用选）',
+      vessel_small:       '小船 / 渡轮',
+      vessel_small_sub:   '几十人，开不上车',
+      vessel_large:       '大船 / 客轮',
+      vessel_large_sub:   '能把车开上船',
+      vessel_unknown:     '不确定',
+      vessel_unknown_sub: '按最严标准算',
+      triggers_header:    '触发的官方判据',
+      cls_REG:            '法规',
+      cls_WARN:           '官方预警',
+      cls_PROD:           '本工具判定',
+      no_trigger:         '未触发任何官方预警或禁航判据。',
+      conservative_note:  '船型未指定，以上按【小船】的严标准判定。如果你坐的是能把车开上船的大船，适用的限制更宽松，实际可能正常运营。',
       missing_header:     '缺失的关键证据',
       trace_header:       'Agent 执行轨迹',
       trace_note:         '以上为本次请求的真实执行记录，非动画。确定性预取的是安全判定必需的证据，模型自主调用的是补充证据。',
@@ -873,7 +912,7 @@
       kind_model_tool:    '模型自主',
       kind_llm:           '模型',
       kind_rule:          '规则引擎',
-      loading_steps:      ['正在预取气象证据...', '正在校验证据充分性...', 'AI 正在比对安全红线...', '正在生成风险评估...'],
+      loading_steps:      ['正在预取气象证据...', '正在校验证据充分性...', 'AI 正在比对官方判据...', '正在生成风险评估...'],
       override_text:      '规则引擎已校正',
       original_label:     '原始判断:',
       weather_header:     '气象数据概览',
@@ -911,11 +950,19 @@
       go_no:              'Do Not Travel',
       risk_label:         { LOW: 'Low Risk', MEDIUM: 'Medium Risk', HIGH: 'High Risk', UNKNOWN: 'Insufficient Evidence' },
       risk_code:          { LOW: 'LOW RISK', MEDIUM: 'MEDIUM RISK', HIGH: 'HIGH RISK', UNKNOWN: 'INSUFFICIENT DATA' },
-      vessel_label:       'Vessel Type',
-      vessel_coastal:     'Coastal Vessel',
-      vessel_coastal_sub: 'Suspend ≥ 10.8 m/s',
-      vessel_ropax:       'Ro-Pax Ferry',
-      vessel_ropax_sub:   'Suspend ≥ 17.2 m/s',
+      vessel_label:       'What kind of boat are you taking? (skip if unsure)',
+      vessel_small:       'Small boat / ferry',
+      vessel_small_sub:   'dozens of people, no cars',
+      vessel_large:       'Large ship / ro-pax',
+      vessel_large_sub:   'cars drive aboard',
+      vessel_unknown:     'Not sure',
+      vessel_unknown_sub: 'uses the strictest standard',
+      triggers_header:    'Official criteria triggered',
+      cls_REG:            'REGULATION',
+      cls_WARN:           'OFFICIAL WARNING',
+      cls_PROD:           'THIS TOOL',
+      no_trigger:         'No official warning or navigation-ban criterion was triggered.',
+      conservative_note:  'Vessel type unspecified, so this was assessed against the stricter small-craft standard. If you are on a large ship that carries vehicles, the limits are higher and service may well be running.',
       missing_header:     'Missing Required Evidence',
       trace_header:       'Agent Execution Trace',
       trace_note:         'This is the real execution record of this request, not an animation. Deterministic steps fetch the evidence the safety verdict requires; model-initiated steps gather supplementary evidence.',
@@ -923,7 +970,7 @@
       kind_model_tool:    'MODEL-CHOSEN',
       kind_llm:           'MODEL',
       kind_rule:          'RULE ENGINE',
-      loading_steps:      ['Pre-fetching weather evidence...', 'Checking evidence sufficiency...', 'AI comparing against safety limits...', 'Generating risk assessment...'],
+      loading_steps:      ['Pre-fetching weather evidence...', 'Checking evidence sufficiency...', 'AI checking against official criteria...', 'Generating risk assessment...'],
       override_text:      'Rule Engine Override',
       original_label:     'Original:',
       weather_header:     'Weather Overview',
@@ -971,10 +1018,10 @@
     document.getElementById('btn-ship').textContent  = t('ship_btn');
 
     document.getElementById('vessel-label').textContent = t('vessel_label');
-    document.querySelector('#btn-coastal .vessel-name').textContent = t('vessel_coastal');
-    document.querySelector('#btn-coastal .vessel-sub').textContent  = t('vessel_coastal_sub');
-    document.querySelector('#btn-ropax .vessel-name').textContent   = t('vessel_ropax');
-    document.querySelector('#btn-ropax .vessel-sub').textContent    = t('vessel_ropax_sub');
+    ['small', 'large', 'unknown'].forEach(k => {
+      document.querySelector(`#btn-${k} .vessel-name`).textContent = t('vessel_' + k);
+      document.querySelector(`#btn-${k} .vessel-sub`).textContent  = t('vessel_' + k + '_sub');
+    });
 
     const inputLabels = document.querySelectorAll('.input-label');
     if (inputLabels[0]) inputLabels[0].textContent = t('origin_label');
@@ -1036,7 +1083,7 @@
   // ── Presets ──
   const PRESETS = {
     'high-air':  { origin: '上海', destination: '拉萨', transport: 'plane' },
-    'high-ship': { origin: '舟山', destination: '嵊泗', transport: 'ship', vessel: 'coastal' },
+    'high-ship': { origin: '舟山', destination: '嵊泗', transport: 'ship', vessel: 'small' },
     'low':       { origin: '杭州', destination: '南京', transport: 'plane' },
   };
   function loadPreset(key) {
@@ -1054,14 +1101,14 @@
     transport = tp;
     document.getElementById('btn-plane').classList.toggle('active', tp === 'plane');
     document.getElementById('btn-ship').classList.toggle('active',  tp === 'ship');
-    // 船型只在海运场景下有意义 —— 两种船型的停航风速红线差了近一倍
+    // 船型只在海运场景下有意义 —— 两类船的禁航风速差了近一倍（6级 vs 7级）
     document.getElementById('vessel-wrap').classList.toggle('visible', tp === 'ship');
   }
 
   function setVessel(v) {
     vesselType = v;
-    document.getElementById('btn-coastal').classList.toggle('active', v === 'coastal');
-    document.getElementById('btn-ropax').classList.toggle('active',   v === 'ropax');
+    ['small', 'large', 'unknown'].forEach(k =>
+      document.getElementById('btn-' + k).classList.toggle('active', v === k));
   }
 
   // ── Submit state ──
@@ -1198,6 +1245,7 @@
       </div>` : '';
 
     const cards = [
+      renderTriggers(data),
       data.weather_summary   ? card('◈', t('weather_header'),  data.weather_summary, 'weather')  : '',
       data.core_reason       ? card('◆', t('analysis_header'), data.core_reason,     'analysis') : '',
       missingHtml,
@@ -1226,6 +1274,41 @@
       <div class="info-card ${cls}">
         <div class="info-card-header"><span>${icon}</span>&nbsp;${header}</div>
         <div class="info-card-body">${escHtml(body)}</div>
+      </div>`;
+  }
+
+  // ── 触发的官方判据 ──
+  // 这一块完全由后端规则引擎产出，模型不参与 —— 避免措辞被模型稀释成"停航预警"这类断言。
+  // 每条都标了来源类型：法规 / 官方预警 / 本工具判定，并链到出处。
+  function renderTriggers(data) {
+    const trig = data.triggers || [];
+    const lvl  = data.risk_level;
+    if (lvl === 'UNKNOWN') return '';
+    if (!trig.length) {
+      return lvl === 'LOW'
+        ? card('○', t('triggers_header'), t('no_trigger'), 'triggers')
+        : '';
+    }
+
+    const rows = trig.map(x => `
+      <div class="trigger-item">
+        <span class="trigger-cls ${escHtml(x.cls)}">${t('cls_' + x.cls) || escHtml(x.cls)}</span>
+        <div class="trigger-main">
+          <div class="trigger-text">${escHtml(x.location)} — ${escHtml(x.text)}</div>
+          ${x.source_url
+            ? `<a class="trigger-src" href="${escHtml(x.source_url)}" target="_blank" rel="noopener">〔${escHtml(x.source)}〕</a>`
+            : `<span class="trigger-src">〔${escHtml(x.source)}〕</span>`}
+        </div>
+      </div>`).join('');
+
+    const ev = data.evidence || {};
+    const conservative = (ev.transport === 'ship' && (ev.vessel_type === 'unknown' || !ev.vessel_type))
+      ? `<div class="authority-note">${t('conservative_note')}</div>` : '';
+
+    return `
+      <div class="info-card triggers">
+        <div class="info-card-header"><span>◈</span>&nbsp;${t('triggers_header')}</div>
+        <div class="info-card-body">${rows}${conservative}</div>
       </div>`;
   }
 

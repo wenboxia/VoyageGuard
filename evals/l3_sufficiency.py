@@ -92,6 +92,9 @@ def check_atmos(rep: Report) -> None:
                 ok = atmos["max_wind_speed_ms"] is not None and atmos["min_visibility_km"] is not None
                 rep.check(ok, f"{city} {d} 风速+能见度齐备",
                           f"wind={atmos['max_wind_speed_ms']} vis={atmos['min_visibility_km']}")
+                # 阵风是大风预警的判据之一（平均风与阵风取「或」），必须可得
+                rep.check(atmos["max_gust_ms"] is not None, f"{city} {d} 阵风可得",
+                          f"gust={atmos['max_gust_ms']}")
                 rep.check(atmos["date"] == d, f"{city} {d} 日期对齐", f"返回 {atmos['date']}")
 
 
@@ -109,14 +112,14 @@ def check_sufficiency_gate(rep: Report) -> None:
     print("\n【5】充分性判定门")
     today = _dates()[0]
 
-    b = evidence.build_evidence("上海", "舟山", today, "ship", "coastal")
+    b = evidence.build_evidence("上海", "舟山", today, "ship", "small")
     rep.check(b.ok, "白名单海运航线 上海→舟山 证据充分",
               f"missing={[m.code for m in b.missing]}")
     waves = [(e.get("marine") or {}).get("max_wave_height_m") for e in b.locations.values()]
     rep.check(all(w is not None for w in waves),
               "海运航线两端浪高均非空 ← 这条早存在就会抓到浪高 bug", f"waves={waves}")
 
-    b2 = evidence.build_evidence("北京", "西安", today, "ship", "coastal")
+    b2 = evidence.build_evidence("北京", "西安", today, "ship", "small")
     rep.check(not b2.ok, "内陆航线当船走 → 证据不足",
               f"missing={[m.code for m in b2.missing]}")
 

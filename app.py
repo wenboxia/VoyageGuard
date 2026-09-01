@@ -72,7 +72,7 @@ class AssessRequest(BaseModel):
     destination: str
     date: str
     transport: str                    # "plane" | "ship"
-    vessel_type: str | None = None    # "coastal" | "ropax"，仅 ship 有意义
+    vessel_type: str | None = None    # "small" | "large" | "unknown"，仅 ship 有意义
     lang: str = "zh"                  # "zh" | "en"
 
 
@@ -85,7 +85,8 @@ async def assess(req: AssessRequest, request: Request):
     transport = req.transport if req.transport in ("plane", "ship") else "plane"
     vessel_type = None
     if transport == "ship":
-        vessel_type = req.vessel_type if req.vessel_type in ("coastal", "ropax") else "coastal"
+        # unknown 是默认值：用户答不上来时按最严（小船）标准判，往安全方向错
+        vessel_type = req.vessel_type if req.vessel_type in ("small", "large") else "unknown"
 
     try:
         bundle = evidence.build_evidence(

@@ -3,6 +3,7 @@ evals/run_all.py — 按代价从低到高依次跑三层，前一层失败就�
 
   L3  确定性断言，零 token       —— 改动之后的第一道检查
   L2  真实网络 + 真实模型调用     —— 端到端结论是否成立且自洽
+  L4  真实停航记录回验           —— 阈值与现实吻不吻合（观测指标，不作门禁）
   L1  全 mock 模型横评           —— 最贵，只在需要重新选型时跑
 
 运行：python -m evals.run_all [--with-l1]
@@ -23,6 +24,10 @@ def main(argv):
     if l2_integration.main() != 0:
         print("\n✗ L2 未通过 —— 端到端链路有问题。停止。")
         return 1
+
+    print("\n▶ L4 · 真实世界回验")
+    from evals import l4_realworld
+    l4_realworld.main()   # 只报告，不作为通过/失败门 —— 召回率是观测指标不是断言
 
     if "--with-l1" in argv:
         print("\n▶ L1 · 推理层（模型横评）")

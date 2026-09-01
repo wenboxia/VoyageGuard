@@ -352,6 +352,57 @@ def fetch_atmos(query: str, target_date: str) -> tuple[dict | None, str | None]:
     }, None
 
 
+ARCHIVE_BASE = os.getenv("VOYAGEGUARD_ARCHIVE_BASE",
+                        "https://archive-api.open-meteo.com/v1/archive")
+
+
+def fetch_atmos_archive(lat: float, lon: float, target_date: str) -> tuple[dict | None, str | None]:
+    """
+    历史大气数据（ERA5 再分析），供 L4 黄金数据集重建过去某天的风况。
+    wttr.in 只有未来 3 天，做历史回验必须换源。
+
+    【重要】ERA5 是【再分析】——事后用观测重建的"实际发生了什么"，
+    不是决策当时可得的【预报】。所以基于它的评测说明的是"阈值与实际停航是否吻合"，
+    而不是"当时的预报能否预测停航"。这两件事不能混为一谈。
+    另外 ERA5 网格约 0.25°，在海峡等地形复杂处会平滑掉局地峰值风。
+    """
+    params = {
+        "latitude": lat, "longitude": lon,
+        "start_date": target_date, "end_date": target_date,
+        "hourly": "wind_speed_10m,wind_gusts_10m,weather_code",
+        "wind_speed_unit": "ms", "timezone": "auto",
+    }
+    url = f"{ARCHIVE_BASE}?{urllib.parse.urlencode(params)}"
+    try:
+        data = _get_json(url)
+    except Exception as e:
+        return None, f"Open-Meteo Archive 请求失败: {e}"
+    if "error" in data:
+        return None, f"Open-Meteo Archive 返回错误: {data.get('reason')}"
+
+    hourly = data.get("hourly", {})
+    winds = [v for v in (hourly.get("wind_speed_10m") or []) if v is not None]
+    gusts = [v for v in (hourly.get("wind_gusts_10m") or []) if v is not None]
+    codes = [v for v in (hourly.get("weather_code") or []) if v is not None]
+    if not winds:
+        return None, "该日期/坐标无历史风速数据"
+
+    # WMO weather code 95-99 = 雷暴
+    desc = "雷暴" if any(95 <= c <= 99 for c in codes) else ""
+    return {
+        "date": target_date,
+        "max_wind_speed_ms": round(max(winds), 1),
+        "max_wind_beaufort": ms_to_beaufort(max(winds)),
+        "max_gust_ms": round(max(gusts), 1) if gusts else None,
+        "min_visibility_km": None,          # ERA5 的 visibility 在多数海域为空
+        "max_temp_c": None, "min_temp_c": None,
+        "description": desc,
+        "quality": "archive",
+        "source": "open-meteo-era5-archive",
+        "fetched_at": _now_iso(),
+    }, None
+
+
 # ---------------------------------------------------------------------------
 # 海洋数据（Open-Meteo Marine）
 # ---------------------------------------------------------------------------
@@ -469,4 +520,59 @@ def build_evidence(
             else:
                 entry["marine"] = marine
 
+    if need_marine:
+        _sample_route_midpoint(bundle, target_date)
+
     return bundle
+
+
+MIDPOINT_KEY = "航线中点"
+
+
+def _sample_route_midpoint(bundle: EvidenceBundle, target_date: str) -> None:
+    """
+    加采一个航线中点。
+
+    为什么需要：跨海航线的风险由开阔水域的中段决定，两端港口是遮蔽水域，会低估。
+    实测 2026-02-05 渤海海峡全线停航当天——烟台港平均风只有 8.0 m/s（大风蓝色），
+    而海峡中部是 15.2 m/s（7 级，已越过客运禁航线）、阵风 21.3 m/s（大风黄色）。
+    只采港口会把这次停航判成中风险。
+
+    best-effort：中点取不到不触发 abstention（两端的必需证据已经齐了），
+    只在 trace 里如实记录。
+    """
+    coords = [e["resolved"] for e in bundle.locations.values()
+              if e.get("resolved", {}).get("lat") is not None]
+    if len(coords) < 2:
+        return
+    lat = sum(c["lat"] for c in coords[:2]) / 2
+    lon = sum(c["lon"] for c in coords[:2]) / 2
+
+    entry: dict = {"name": MIDPOINT_KEY, "role": "midpoint", "errors": [],
+                   "resolved": {"lat": round(lat, 4), "lon": round(lon, 4),
+                                "source": "derived", "matched_name": MIDPOINT_KEY}}
+
+    atmos, err, ms = _timed(fetch_atmos, f"{lat},{lon}", target_date)
+    bundle.trace.append(TraceStep(
+        "get_weather_forecast", {"location": f"{lat:.4f},{lon:.4f}", "date": target_date,
+                                 "role": "midpoint"},
+        atmos is not None, ms,
+        summary=(f"wind {atmos['max_wind_speed_ms']} m/s" if atmos else ""), error=err))
+    if atmos is not None:
+        entry["atmos"] = atmos
+    else:
+        entry["errors"].append(err or "")
+
+    marine, err, ms = _timed(fetch_marine, lat, lon, target_date)
+    bundle.trace.append(TraceStep(
+        "get_marine_forecast", {"lat": round(lat, 4), "lon": round(lon, 4),
+                                "date": target_date, "role": "midpoint"},
+        marine is not None, ms,
+        summary=(f"wave max {marine['max_wave_height_m']} m" if marine else ""), error=err))
+    if marine is not None:
+        entry["marine"] = marine
+    else:
+        entry["errors"].append(err or "")
+
+    if entry.get("atmos") or entry.get("marine"):
+        bundle.locations[MIDPOINT_KEY] = entry

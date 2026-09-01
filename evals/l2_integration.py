@@ -12,6 +12,7 @@ L2 · 集成层 —— 真实工具调用、真实网络，测端到端结论是
 
 import datetime
 import importlib
+import json
 import os
 import sys
 import time
@@ -26,7 +27,7 @@ GREEN, RED, YELLOW, DIM, RESET = "\033[32m", "\033[31m", "\033[33m", "\033[2m", 
 VALID_LEVELS = {"LOW", "MEDIUM", "HIGH", "UNKNOWN"}
 REQUIRED_FIELDS = ("risk_level", "risk_label", "is_go_recommended", "core_reason",
                    "alternative_advice", "weather_summary", "rule_override",
-                   "decision_source", "evidence", "trace")
+                   "decision_source", "evidence", "trace", "triggers")
 LATENCY_BUDGET_S = 25.0
 
 
@@ -73,6 +74,28 @@ def check_provenance(rep, data, label):
     rep.check(not bad, f"{label} · 证据带 source/fetched_at", f"缺失: {bad}" if bad else "")
 
 
+def check_trigger_provenance(rep, data, label):
+    """每条触发项都要能追到出处，且来源类型必须是三类之一。"""
+    trig = data.get("triggers") or []
+    bad_cls = [t["code"] for t in trig if t.get("cls") not in ("REG", "WARN", "PROD")]
+    rep.check(not bad_cls, f"{label} · 触发项来源类型合法", f"异常: {bad_cls}" if bad_cls else "")
+    no_src = [t["code"] for t in trig if not t.get("source")]
+    rep.check(not no_src, f"{label} · 每条触发项都带出处", f"缺出处: {no_src}" if no_src else "")
+    if data.get("risk_level") not in ("LOW", "UNKNOWN"):
+        rep.check(bool(trig), f"{label} · 非 LOW 结论必须有支撑它的官方判据",
+                  f"level={data.get('risk_level')} 但 triggers 为空")
+        body = data.get("core_reason") or ""
+        rep.check("以官方通知为准" in body or "official notices" in body,
+                  f"{label} · 正文含「以官方通知为准」", body[-40:])
+
+
+def check_no_assertive_wording(rep, data, label):
+    """全响应不得出现替监管部门下结论的措辞。"""
+    blob = json.dumps(data, ensure_ascii=False)
+    banned = [w for w in ("停航预警", "无法起降", "航班将取消", "强制停航") if w in blob]
+    rep.check(not banned, f"{label} · 无断言式措辞", f"命中: {banned}" if banned else "")
+
+
 def check_self_consistency(rep, data, label):
     """拿返回的 evidence 重跑规则引擎，结论必须和返回的 risk_level 一致。"""
     bundle = evidence.EvidenceBundle.from_dict(data.get("evidence", {}))
@@ -80,7 +103,7 @@ def check_self_consistency(rep, data, label):
         rep.check(data.get("risk_level") == "UNKNOWN",
                   f"{label} · 证据不足时必须是 UNKNOWN", f"got={data.get('risk_level')}")
         return
-    req, _, _ = rules.required_level(bundle)
+    req, _ = rules.required_level(bundle)
     final = data.get("risk_level")
     if final == "UNKNOWN":
         rep.check(data.get("decision_source") == "llm_abstain",
@@ -94,12 +117,14 @@ def check_self_consistency(rep, data, label):
 def scenario_marine_route(rep, client):
     print(f"\n  【1】真实海运航线 上海→舟山（近海游船）")
     resp, dt = call(client, origin="上海", destination="舟山", date=_today(),
-                    transport="ship", vessel_type="coastal")
+                    transport="ship", vessel_type="small")
     if not rep.check(resp.status_code == 200, "HTTP 200", f"status={resp.status_code}"):
         return
     data = resp.json()
     check_schema(rep, data, "海运")
     check_provenance(rep, data, "海运")
+    check_trigger_provenance(rep, data, "海运")
+    check_no_assertive_wording(rep, data, "海运")
     check_self_consistency(rep, data, "海运")
     rep.check(dt < LATENCY_BUDGET_S, "端到端时延在预算内", f"{dt:.1f}s / {LATENCY_BUDGET_S}s")
 
@@ -118,7 +143,7 @@ def scenario_marine_route(rep, client):
 def scenario_inland_as_ship(rep, client):
     print(f"\n  【2】内陆当船走 北京→西安（应当弃权）")
     resp, _ = call(client, origin="北京", destination="西安", date=_today(),
-                   transport="ship", vessel_type="coastal")
+                   transport="ship", vessel_type="small")
     if not rep.check(resp.status_code == 200, "HTTP 200", f"status={resp.status_code}"):
         return
     data = resp.json()
@@ -155,12 +180,36 @@ def scenario_air_route(rep, client):
     data = resp.json()
     check_schema(rep, data, "航空")
     check_provenance(rep, data, "航空")
+    check_trigger_provenance(rep, data, "航空")
+    check_no_assertive_wording(rep, data, "航空")
     check_self_consistency(rep, data, "航空")
     rep.check(dt < LATENCY_BUDGET_S, "端到端时延在预算内", f"{dt:.1f}s")
     rep.check(data.get("decision_source") in
               {"llm", "rule_override_up", "rule_override_down", "rule_only",
                "llm_abstain", "abstain_insufficient_evidence"},
               "decision_source 可解释", f"got={data.get('decision_source')}")
+
+
+def scenario_vessel_contrast(rep, client):
+    """同一条航线、同一天，小船与大船的判定不应更宽松；不确定必须等同于小船。"""
+    print(f"\n  【7】船型对照：同航线不同船型")
+    out = {}
+    for v in ("small", "large", "unknown"):
+        resp, _ = call(client, origin="烟台", destination="大连", date=_today(),
+                       transport="ship", vessel_type=v)
+        if resp.status_code != 200:
+            rep.check(False, f"船型 {v} HTTP 200", f"status={resp.status_code}")
+            return
+        out[v] = resp.json()
+    order = {"LOW": 0, "MEDIUM": 1, "HIGH": 2, "UNKNOWN": 0}
+    rep.check(order[out["small"]["risk_level"]] >= order[out["large"]["risk_level"]],
+              "小船的判定不低于大船（禁航线 6 级 vs 7 级）",
+              f"small={out['small']['risk_level']} large={out['large']['risk_level']}")
+    rep.check(out["unknown"]["risk_level"] == out["small"]["risk_level"],
+              "不确定 == 按小船的严标准判",
+              f"unknown={out['unknown']['risk_level']} small={out['small']['risk_level']}")
+    rep.check(out["unknown"]["evidence"]["vessel_type"] == "unknown",
+              "evidence 里如实记录用户选的是「不确定」")
 
 
 def scenario_fault_injection(rep):
@@ -176,7 +225,7 @@ def scenario_fault_injection(rep):
         importlib.reload(app_module)
         with TestClient(app_module.app) as c:
             resp, _ = call(c, origin="上海", destination="舟山", date=_today(),
-                           transport="ship", vessel_type="coastal")
+                           transport="ship", vessel_type="small")
         rep.check(resp.status_code == 200, "数据源挂掉时不返回 5xx", f"status={resp.status_code}")
         if resp.status_code == 200:
             data = resp.json()
@@ -208,7 +257,7 @@ def scenario_llm_unavailable(rep):
         importlib.reload(agent); importlib.reload(rules_mod); importlib.reload(app_module)
         with TestClient(app_module.app) as c:
             resp, _ = call(c, origin="青岛", destination="长岛", date=_today(),
-                           transport="ship", vessel_type="coastal")
+                           transport="ship", vessel_type="small")
         rep.check(resp.status_code == 200, "模型挂掉时不返回 5xx", f"status={resp.status_code}")
         if resp.status_code == 200:
             data = resp.json()
@@ -243,6 +292,7 @@ def main():
         scenario_inland_as_ship(rep, client)
         scenario_out_of_horizon(rep, client)
         scenario_air_route(rep, client)
+        scenario_vessel_contrast(rep, client)
     scenario_fault_injection(rep)
     scenario_llm_unavailable(rep)
 
