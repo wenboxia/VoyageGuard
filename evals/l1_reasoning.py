@@ -12,6 +12,8 @@ L1 · 推理层 —— 工具全 mock，隔离网络与数据源，只测 LLM �
 运行：python -m evals.l1_reasoning [provider ...]
 """
 
+import concurrent.futures as cf
+import os
 import sys
 import time
 
@@ -67,14 +69,22 @@ def run_for_provider(provider_key):
     print(f"{'─' * 96}")
     print(f"  {'ID':>3}  {'期望':^8}  {'LLM':^9}  {'安全网后':^9}  {'JSON':^4}  {'工具':^4}  {'耗时':>6}  {'类型':^4}  描述")
 
-    rows = []
-    for case in CASES:
+    # 用例之间互不依赖，可以并发 —— 串行跑 39 条 × 4 个模型要 40 分钟以上，
+    # 其中 kimi-k3 单条就要 ~50s。并发度别开太大，各家都有速率限制。
+    workers = int(os.getenv("VOYAGEGUARD_EVAL_CONCURRENCY", "5"))
+
+    def work(case):
         r = eval_one(case, provider_key)
         acceptable = case["acceptable"]
         r["llm_ok"] = r["llm_level"] in acceptable
         r["final_ok"] = r["final_level"] in acceptable
-        rows.append((case, r))
+        return case, r
 
+    with cf.ThreadPoolExecutor(max_workers=workers) as ex:
+        rows = list(ex.map(work, CASES))   # map 保序，打印顺序仍是用例编号顺序
+
+    for case, r in rows:
+        acceptable = case["acceptable"]
         kind = "弃权" if case["expected"] == "UNKNOWN" else ("灰色" if len(acceptable) > 1 else "硬判")
         override = " ←校正" if r["final_level"] != r["llm_level"] else ""
         print(f"  {case['id']:>3}  {case['expected']:^8}  "
