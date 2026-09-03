@@ -105,6 +105,50 @@ PORTS: dict[str, tuple[float, float]] = {
     "涠洲岛": (21.03, 109.12),
     "天津": (38.98, 117.79),
     "秦皇岛": (39.91, 119.62),
+    # ── 第五轮扩充：覆盖率本身就是产品质量 ──────────────────────────────
+    # Open-Meteo Geocoding 对中国地级市覆盖很差（population 字段全为 null，
+    # 返回的是同名村镇：阳江→江苏、营口→黑龙江，泉州直接返回 0 条），兜底基本失效。
+    # 所以海事覆盖实际等于这张白名单，必须把它扩够。每条都经 L3 验证能取到浪高。
+    "万宁": (18.85, 110.6),
+    "上川岛": (21.7, 112.75),
+    "东山": (23.65, 117.5),
+    "东方": (19.05, 108.55),
+    "东营": (38.05, 119.1),
+    "中山": (22.3, 113.55),
+    "丹东": (39.87, 124.05),
+    "儋州": (19.75, 109.1),
+    "南澳": (23.45, 117.15),
+    "唐山": (39.05, 118.95),
+    "大长山岛": (39.25, 122.6),
+    "宁德": (26.65, 119.9),
+    "崇明": (31.55, 121.85),
+    "平潭岛": (25.55, 119.85),
+    "庙岛": (37.95, 120.7),
+    "惠州": (22.6, 114.6),
+    "文昌": (19.75, 111.1),
+    "桂山岛": (22.15, 113.8),
+    "汕尾": (22.7, 115.4),
+    "江门": (21.9, 113.05),
+    "洋山": (30.62, 122.07),
+    "洋浦": (19.75, 109.15),
+    "淮安": (34.2, 120.3),
+    "滨州": (38.15, 118.2),
+    "漳州": (24.2, 118.1),
+    "潍坊": (37.3, 119.2),
+    "獐子岛": (39.1, 122.7),
+    "琼海": (19.2, 110.65),
+    "盐城": (33.85, 120.75),
+    "盘锦": (40.75, 121.75),
+    "茂名": (21.35, 111.05),
+    "莆田": (25.2, 119.2),
+    "营口": (40.3, 122.1),
+    "葫芦岛": (40.68, 120.9),
+    "钦州": (21.6, 108.65),
+    "锦州": (40.75, 121.2),
+    "防城港": (21.55, 108.35),
+    "阳江": (21.7, 111.9),
+    "陵水": (18.4, 110.1),
+    "黄骅": (38.3, 117.9),
 }
 
 # 常见别名 / 英文名 → 白名单主键
@@ -137,7 +181,45 @@ PORT_ALIASES: dict[str, str] = {
 # 清单只保留【实测确认正在发布 TAF 的机场】。站点库里另有 20 个标称有 METAR/TAF
 # 但实际没有在国际网上发报（含拉萨 ZULS），已剔除 —— 覆盖范围必须等于数据可得性，
 # 不能靠一张"理论上应该有数据"的名单。
-AIRPORTS: dict[str, tuple[str, float, float]] = {
+# ── 两份清单，各管一件事 ──────────────────────────────────────────────────
+#
+# AIRPORT_CITIES（宽，149 个）—— **可达性契约**：这个地方到底有没有民航机场。
+#   存在的理由：航空判据只要风速和能见度，而任何地名都能查到这两样。没有它，
+#   "上海 → 南极 飞机" 会返回"低风险，建议出行"。
+#
+# AIRPORTS_WX（窄，38 个）—— **数据源升级**：哪些机场发布官方 METAR/TAF。
+#   命中就用官方机场气象；没命中就回落到城市地面天气，并在证据里标明数据源。
+#
+# 为什么不把两者合一：合一意味着"没有官方机场气象 = 不能评估"，
+# 覆盖会从任意城市塌缩到 38 个机场。而对一个决策工具来说，**覆盖率本身就是产品质量**——
+# 一个大多数查询都回答"证据不足"的工具不会让任何人更安全。
+#
+# 而且我们的三条航空判据里，只有 LVTO 能见度那条真的需要跑道观测；
+# 大风预警本来就是**对区域**发布的，城市地面风正是它的输入。
+AIRPORT_CITIES: set[str] = {
+    "北京", "上海", "天津", "重庆", "广州", "深圳", "成都", "杭州",
+    "西安", "昆明", "南京", "郑州", "武汉", "长沙", "青岛", "厦门",
+    "大连", "沈阳", "哈尔滨", "济南", "石家庄", "太原", "呼和浩特", "长春",
+    "合肥", "福州", "南昌", "南宁", "海口", "贵阳", "拉萨", "兰州",
+    "西宁", "银川", "乌鲁木齐", "唐山", "秦皇岛", "邯郸", "张家口", "大同",
+    "运城", "包头", "鄂尔多斯", "赤峰", "呼伦贝尔", "鞍山", "丹东", "锦州",
+    "延吉", "齐齐哈尔", "牡丹江", "佳木斯", "大庆", "徐州", "连云港", "常州",
+    "南通", "盐城", "扬州", "无锡", "温州", "台州", "舟山", "义乌",
+    "黄山", "阜阳", "烟台", "威海", "济宁", "临沂", "潍坊", "日照",
+    "泉州", "武夷山", "赣州", "景德镇", "九江", "宁波", "洛阳", "南阳",
+    "宜昌", "襄阳", "恩施", "张家界", "常德", "怀化", "珠海", "汕头",
+    "湛江", "梅州", "揭阳", "桂林", "柳州", "北海", "三亚", "金门",
+    "绵阳", "宜宾", "泸州", "南充", "西昌", "九寨沟", "丽江", "大理",
+    "西双版纳", "芒市", "腾冲", "遵义", "兴义", "林芝", "日喀则", "榆林",
+    "汉中", "敦煌", "嘉峪关", "格尔木", "中卫", "喀什", "库尔勒", "伊宁",
+    "阿勒泰", "和田", "克拉玛依", "香港", "澳门", "台北", "高雄", "台中",
+    "东京", "大阪", "首尔", "新加坡", "曼谷", "吉隆坡", "悉尼", "墨尔本",
+    "伦敦", "巴黎", "法兰克福", "阿姆斯特丹", "莫斯科", "迪拜", "多哈", "纽约",
+    "洛杉矶", "旧金山", "西雅图", "温哥华", "多伦多",
+}
+
+
+AIRPORTS_WX: dict[str, tuple[str, float, float]] = {
     "北京": ("ZBAA", 40.082, 116.603),   # Beijing Intl
     "大兴": ("ZBAD", 39.501, 116.412),   # Beijing/Daxing Arpt
     "呼和浩特": ("ZBHH", 40.854, 111.827),   # Hohhot/Baita Intl
@@ -192,18 +274,33 @@ AIRPORT_ALIASES: dict[str, str] = {
 }
 
 
+def _lookup_airport_city(name: str) -> str | None:
+    """可达性清单查找（宽）。返回规范名，未命中返回 None。"""
+    raw = (name or "").strip()
+    if raw in AIRPORT_CITIES:
+        return raw
+    norm = _normalize(raw)
+    for alias, canonical in AIRPORT_ALIASES.items():
+        if _normalize(alias) == norm and canonical in AIRPORT_CITIES:
+            return canonical
+    for canonical in AIRPORT_CITIES:
+        if _normalize(canonical) == norm:
+            return canonical
+    return None
+
+
 def _lookup_airport(name: str) -> tuple[str, str, float, float] | None:
     """返回 (规范中文名, ICAO, lat, lon)，未命中返回 None。清单内的机场全部发布 TAF。"""
     raw = (name or "").strip()
-    if raw in AIRPORTS:
-        return raw, *AIRPORTS[raw]
+    if raw in AIRPORTS_WX:
+        return raw, *AIRPORTS_WX[raw]
     norm = _normalize(raw)
     for alias, canonical in AIRPORT_ALIASES.items():
-        if _normalize(alias) == norm and canonical in AIRPORTS:
-            return canonical, *AIRPORTS[canonical]
-    for canonical in AIRPORTS:
+        if _normalize(alias) == norm and canonical in AIRPORTS_WX:
+            return canonical, *AIRPORTS_WX[canonical]
+    for canonical in AIRPORTS_WX:
         if _normalize(canonical) == norm:
-            return canonical, *AIRPORTS[canonical]
+            return canonical, *AIRPORTS_WX[canonical]
     return None
 
 
@@ -344,10 +441,14 @@ def resolve_location(name: str, mode: str) -> tuple[dict | None, Missing | None]
     """
     if mode == "aviation":
         hit = _lookup_airport(name)
-        if hit:
+        if hit:      # 有官方机场气象
             canonical, icao, lat, lon = hit
             return {"lat": lat, "lon": lon, "source": "airport_whitelist",
                     "matched_name": canonical, "icao": icao}, None
+        canonical = _lookup_airport_city(name)
+        if canonical:  # 有机场但不发布 METAR/TAF —— 回落到城市地面天气
+            return {"lat": None, "lon": None, "source": "airport_city",
+                    "matched_name": canonical}, None
         return None, Missing("no_airport", "", name,
                              "该地点不在已收录的民航机场清单内")
 
@@ -604,6 +705,32 @@ def fetch_airport_wx(icao: str, target_date: str) -> tuple[dict | None, str | No
     }, None
 
 
+def fetch_aviation_wx(icao: str | None, city: str, target_date: str) -> tuple[dict | None, str | None]:
+    """
+    航空气象：**官方优先，取不到就回落，并在证据里标明用的是哪一种。**
+
+    优先级
+      1. METAR/TAF（官方机场气象，38 个机场，TAF 约覆盖 30 小时）
+      2. wttr.in 城市地面天气（覆盖任意城市、3 天）
+
+    为什么不是"没有官方数据就弃权"：我们的三条航空判据里，只有 LVTO 能见度那条
+    真的需要跑道观测；**大风预警本来就是对区域发布的，城市地面风正是它的输入**。
+    为了改善其中一条而把覆盖砍掉 90%，不划算 —— 对决策工具来说覆盖率本身就是产品质量。
+
+    数据源差异通过 evidence 里每个数值自带的 source 字段透出，前端可见。
+    """
+    if icao:
+        data, err = fetch_airport_wx(icao, target_date)
+        if data is not None:
+            return data, None
+        # 官方数据取不到（超出 TAF 范围 / 该机场当时没发报）→ 回落，不弃权
+    data, err = fetch_atmos(city, target_date)
+    if data is not None:
+        # 标明这是城市地面天气而不是跑道观测，能见度是近似值
+        data["quality"] = "city_surface"
+    return data, err
+
+
 # ---------------------------------------------------------------------------
 # 海洋数据（Open-Meteo Marine）
 # ---------------------------------------------------------------------------
@@ -836,10 +963,9 @@ def build_evidence(
     # 串行约 4.2s，并发约 1s —— 而 LLM 那一步就要 27s，能省的都得省。
     jobs, meta = [], []
     for pt in points:
-        icao = pt["resolved"].get("icao")
-        if icao:
-            # 航空：用官方机场气象（METAR 实况 + TAF 预报）
-            jobs.append((fetch_airport_wx, icao, target_date))
+        if transport == "plane":
+            # 航空：官方 METAR/TAF 优先，取不到回落到城市地面天气（标明数据源）
+            jobs.append((fetch_aviation_wx, pt["resolved"].get("icao"), pt["name"], target_date))
         else:
             # 海事：wttr.in 的地面天气（船在水面，地面气象就是正确的变量）
             jobs.append((fetch_atmos, pt["query"], target_date))

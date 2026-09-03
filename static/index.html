@@ -878,7 +878,7 @@
       header_sub:         'AI 实时分析气象风险，告诉你「能不能走」',
       quick_demo:         '快速体验',
       preset_air_name:    '✈️ 航空高风险',
-      preset_air_sub:     '官方机场预报判定',
+      preset_air_sub:     '大风天飞拉萨',
       preset_ship_name:   '🚢 海事高风险',
       preset_ship_sub:    '近海大风停航',
       preset_low_name:    '✓ 低风险出行',
@@ -905,13 +905,14 @@
       vessel_large_sub:   '能把车开上船',
       vessel_unknown:     '不确定',
       vessel_unknown_sub: '按最严标准算',
-      date_hint_air:      '航空只支持今天和明天 —— 官方机场预报（TAF）约覆盖 30 小时',
-      date_hint_sea:      '海事支持今天起 3 天',
+      date_hint_air:      '优先使用官方机场气象（METAR/TAF）；覆盖不到的机场或日期回落到城市地面天气，结果里会标明',
+      date_hint_sea:      '海事覆盖今天起 3 天，按航线距离沿途多点采样',
       triggers_header:    '触发的官方判据',
       cls_REG:            '法规',
       cls_WARN:           '官方预警',
       cls_PROD:           '本工具判定',
       no_trigger:         '未触发任何官方预警或禁航判据。',
+      city_wx_note:       '部分气象数据来自城市地面天气而非机场跑道观测（该机场未发布 METAR/TAF，或日期超出官方预报范围）。能见度为近似值。',
       conservative_note:  '船型未指定，以上按【小船】的严标准判定。如果你坐的是能把车开上船的大船，适用的限制更宽松，实际可能正常运营。',
       missing_header:     '缺失的关键证据',
       trace_header:       'Agent 执行轨迹',
@@ -938,7 +939,7 @@
       header_sub:         'AI-powered real-time weather risk analysis — know if you can travel',
       quick_demo:         'Quick Demo',
       preset_air_name:    '✈️ Aviation High Risk',
-      preset_air_sub:     'Official airport forecast',
+      preset_air_sub:     'Strong winds to Lhasa',
       preset_ship_name:   '🚢 Maritime High Risk',
       preset_ship_sub:    'Coastal gale, suspended service',
       preset_low_name:    '✓ Low Risk Travel',
@@ -965,13 +966,14 @@
       vessel_large_sub:   'cars drive aboard',
       vessel_unknown:     'Not sure',
       vessel_unknown_sub: 'uses the strictest standard',
-      date_hint_air:      'Flights: today and tomorrow only — official airport forecasts (TAF) cover about 30 hours',
-      date_hint_sea:      'Sailings: today plus the next 2 days',
+      date_hint_air:      'Official airport weather (METAR/TAF) is used where available; otherwise falls back to city surface weather, labelled in the result',
+      date_hint_sea:      'Sailings: today plus 2 days, sampled at several points along the route',
       triggers_header:    'Official criteria triggered',
       cls_REG:            'REGULATION',
       cls_WARN:           'OFFICIAL WARNING',
       cls_PROD:           'THIS TOOL',
       no_trigger:         'No official warning or navigation-ban criterion was triggered.',
+      city_wx_note:       'Some data comes from city surface weather rather than runway observations (that airport does not publish METAR/TAF, or the date is beyond the official forecast). Visibility is approximate.',
       conservative_note:  'Vessel type unspecified, so this was assessed against the stricter small-craft standard. If you are on a large ship that carries vehicles, the limits are higher and service may well be running.',
       missing_header:     'Missing Required Evidence',
       trace_header:       'Agent Execution Trace',
@@ -1094,7 +1096,7 @@
 
   // ── Presets ──
   const PRESETS = {
-    'high-air':  { origin: '乌鲁木齐', destination: '哈尔滨', transport: 'plane' },
+    'high-air':  { origin: '上海', destination: '拉萨', transport: 'plane' },
     'high-ship': { origin: '舟山', destination: '嵊泗', transport: 'ship', vessel: 'small' },
     'low':       { origin: '杭州', destination: '南京', transport: 'plane' },
   };
@@ -1299,10 +1301,17 @@
     const trig = data.triggers || [];
     const lvl  = data.risk_level;
     if (lvl === 'UNKNOWN') return '';
+    const ev0 = data.evidence || {};
+    const cityWx0 = Object.values(ev0.locations || {})
+      .some(l => (l.atmos || {}).quality === 'city_surface');
     if (!trig.length) {
-      return lvl === 'LOW'
-        ? card('○', t('triggers_header'), t('no_trigger'), 'triggers')
-        : '';
+      if (lvl !== 'LOW') return '';
+      return `
+        <div class="info-card triggers">
+          <div class="info-card-header"><span>○</span>&nbsp;${t('triggers_header')}</div>
+          <div class="info-card-body">${escHtml(t('no_trigger'))}
+            ${cityWx0 ? `<div class="authority-note">${t('city_wx_note')}</div>` : ''}</div>
+        </div>`;
     }
 
     const rows = trig.map(x => `
@@ -1319,11 +1328,15 @@
     const ev = data.evidence || {};
     const conservative = (ev.transport === 'ship' && (ev.vessel_type === 'unknown' || !ev.vessel_type))
       ? `<div class="authority-note">${t('conservative_note')}</div>` : '';
+    // 数据源差异要让用户看得见：官方机场气象 vs 城市地面天气
+    const usedCityWx = Object.values(ev.locations || {})
+      .some(l => (l.atmos || {}).quality === 'city_surface');
+    const cityNote = usedCityWx ? `<div class="authority-note">${t('city_wx_note')}</div>` : '';
 
     return `
       <div class="info-card triggers">
         <div class="info-card-header"><span>◈</span>&nbsp;${t('triggers_header')}</div>
-        <div class="info-card-body">${rows}${conservative}</div>
+        <div class="info-card-body">${rows}${conservative}${cityNote}</div>
       </div>`;
   }
 

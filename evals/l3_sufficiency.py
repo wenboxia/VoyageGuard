@@ -77,7 +77,7 @@ def check_atmos(rep: Report) -> None:
     dates = _dates()
 
     def probe(city):
-        icao = evidence.AIRPORTS[city][0]
+        icao = evidence.AIRPORTS_WX[city][0]
         out = []
         for d in dates[:2]:      # TAF 只覆盖约 30 小时，第 3 天本就该弃权
             atmos, err = evidence.fetch_airport_wx(icao, d)
@@ -128,12 +128,23 @@ def check_reachability_gates(rep: Report) -> None:
         resolved, _ = evidence.resolve_location(name, "aviation")
         rep.check(resolved is not None, f"航空：{name} 在机场清单内，正常放行")
 
-    # 拉萨在民航站点库里标称有 METAR/TAF，但实测没有在国际网上发报。
-    # 清单按【实测可得性】而不是【标称能力】来定 —— 覆盖范围必须等于数据可得性。
-    resolved, miss = evidence.resolve_location("拉萨", "aviation")
-    rep.check(resolved is None and miss and miss.code == "no_airport",
-              "航空：拉萨实测无 TAF 发报，已从清单剔除并弃权",
-              miss.detail if miss else "意外放行")
+    # 两份清单各管一件事：可达性（宽，149 个）决定"能不能评估"，
+    # 官方气象清单（窄，38 个）决定"用哪个数据源"。
+    # 拉萨有机场但不发布 METAR/TAF —— 应当放行并回落到城市地面天气，而不是弃权。
+    resolved, _ = evidence.resolve_location("拉萨", "aviation")
+    rep.check(resolved is not None and resolved.get("source") == "airport_city",
+              "航空：有机场但无官方气象的城市 → 放行并回落，不弃权",
+              f"source={resolved.get('source') if resolved else None}")
+    resolved, _ = evidence.resolve_location("上海", "aviation")
+    rep.check(resolved is not None and resolved.get("icao") == "ZSPD",
+              "航空：有官方气象的机场 → 带上 ICAO 走 METAR/TAF")
+
+    # 覆盖率本身就是产品质量：超出 TAF 范围要回落而不是弃权
+    beyond = (datetime.date.today() + datetime.timedelta(days=2)).isoformat()
+    a, err = evidence.fetch_aviation_wx("ZSPD", "上海", beyond)
+    rep.check(a is not None and a.get("quality") == "city_surface",
+              "航空：超出 TAF 范围时回落到城市地面天气并标明质量",
+              f"quality={a.get('quality') if a else err}")
 
     b = evidence.build_evidence("上海", "南极", today, "plane", None)
     rep.check(not b.ok and any(m.code == "no_airport" for m in b.missing),
@@ -192,12 +203,6 @@ def check_sufficiency_gate(rep: Report) -> None:
     b2 = evidence.build_evidence("北京", "西安", today, "ship", "small")
     rep.check(not b2.ok, "内陆航线当船走 → 证据不足",
               f"missing={[m.code for m in b2.missing]}")
-
-    beyond = (datetime.date.today() + datetime.timedelta(days=2)).isoformat()
-    b4 = evidence.build_evidence("杭州", "南京", beyond, "plane", None)
-    rep.check(not b4.ok and any(m.code == "beyond_taf_horizon" for m in b4.missing),
-              "航空查第 3 天 → 超出 TAF 范围，弃权而不是换数据源顶替",
-              f"missing={[m.code for m in b4.missing]}")
 
     b3 = evidence.build_evidence("杭州", "南京", today, "plane", None)
     rep.check(b3.ok, "航空航线 杭州→南京 证据充分",

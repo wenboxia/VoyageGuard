@@ -173,8 +173,7 @@ def scenario_out_of_horizon(rep, client):
     codes = {m["code"] for m in data["evidence"]["sufficiency"]["missing"]}
     # 航空走官方机场预报（TAF，约 30 小时），海事走 wttr.in（3 天），
     # 两条路径超范围的缺失码不同，都要接受
-    rep.check(bool(codes & {"date_out_of_range", "beyond_taf_horizon"}),
-              "缺失原因为超出官方预报范围", f"codes={sorted(codes)}")
+    rep.check("date_out_of_range" in codes, "缺失原因为超出预报范围", f"codes={sorted(codes)}")
 
 
 def scenario_air_route(rep, client):
@@ -280,6 +279,32 @@ def scenario_reachability(rep, client):
         rep.check("内河" in txt and "**" not in txt, "文案明确告知内河航线不在覆盖范围内且无 markdown 残留", txt[:70])
 
 
+def scenario_coverage(rep, client):
+    """
+    覆盖率断言。对一个决策工具来说覆盖率本身就是产品质量 ——
+    一个大多数查询都回答"证据不足"的工具不会让任何人更安全。
+    """
+    print(f"\n  【10】覆盖率：常见城市组合不该动不动弃权")
+    cases = [("上海", "广州", "plane"), ("温州", "银川", "plane"),
+             ("成都", "拉萨", "plane"), ("阳江", "海口", "ship"),
+             ("丹东", "大连", "ship"), ("泉州", "厦门", "ship")]
+    ok = 0
+    for o, d, tp in cases:
+        body = {"origin": o, "destination": d, "date": _today(), "transport": tp, "lang": "zh"}
+        if tp == "ship":
+            body["vessel_type"] = "unknown"
+        resp, _ = call(client, **body)
+        lv = resp.json().get("risk_level") if resp.status_code == 200 else "ERR"
+        ok += lv in ("LOW", "MEDIUM", "HIGH")
+        print(f"    {'✓' if lv in ('LOW','MEDIUM','HIGH') else '✗'} {o}→{d} ({tp}) → {lv}")
+    rep.check(ok == len(cases), f"{len(cases)} 组常见航线全部能给出结论", f"{ok}/{len(cases)}")
+
+    # 但前提不成立的仍必须拦住
+    resp, _ = call(client, origin="上海", destination="南极", date=_today(), transport="plane")
+    rep.check(resp.json().get("risk_level") == "UNKNOWN",
+              "覆盖率提高的同时，前提不成立的查询仍被拦住")
+
+
 def scenario_fault_injection(rep):
     """把海洋 API 指向不可达主机：必须弃权，不能崩、更不能静默给 LOW。"""
     print(f"\n  【5】故障注入：海洋数据源不可达")
@@ -362,6 +387,7 @@ def main():
         scenario_air_route(rep, client)
         scenario_vessel_contrast(rep, client)
         scenario_reachability(rep, client)
+        scenario_coverage(rep, client)
     scenario_fault_injection(rep)
     scenario_llm_unavailable(rep)
     scenario_llm_timeout(rep)
