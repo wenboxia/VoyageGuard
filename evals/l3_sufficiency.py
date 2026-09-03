@@ -188,6 +188,56 @@ def check_route_sampling(rep: Report) -> None:
     rep.check(bd.ok, "但两端证据仍充分，不因此弃权", f"missing={[m.code for m in bd.missing]}")
 
 
+def check_marine_boundary(rep: Report) -> None:
+    """
+    海域判据：判的应该是"这个城市能不能通海"，不是"市中心那个像素是不是海"。
+
+    半径 50 km 是实测定的：可通海城市（杭州/嘉兴/台州）最近海域都在 50 km 内，
+    内陆城市（南京/镇江/武汉/郑州，含长江沿线）都在 100 km 外，余量很大。
+    """
+    print("\n【8】海域判据的边界城市")
+    for name in ("杭州", "嘉兴", "台州"):
+        r, m = evidence.resolve_location(name, "marine")
+        rep.check(r is not None, f"{name}（湾顶/河口）判为可通海",
+                  f"采样点偏移 {r.get('offset_km')} km" if r else (m.detail if m else ""))
+    for name in ("南京", "镇江", "武汉", "郑州"):
+        r, m = evidence.resolve_location(name, "marine")
+        rep.check(r is None and m and m.code == "not_coastal",
+                  f"{name}（内陆/长江沿线）仍判为不可通海",
+                  f"意外放行到 ({r['lat']},{r['lon']})" if r else "")
+
+
+def check_taf_coverage(rep: Report) -> None:
+    """
+    TAF 通常只覆盖约 30 小时，查"明天"时往往只覆盖 20/24 小时。
+    拿这 20 小时的极值当整天结论 = 用局部数据冒充完整结论，
+    而漏掉晚间大风是"该警告时不警告"方向的错。所以未覆盖时段必须补齐并标注。
+    """
+    print("\n【9】航空 TAF 覆盖与补齐")
+    today = _dates()[0]
+    icao = evidence.AIRPORTS_WX["上海"][0]
+
+    a, _ = evidence.fetch_airport_wx(icao, today)
+    rep.check(a is not None and a.get("taf_cov_hours") is not None,
+              "官方数据带出 TAF 对该日的实际覆盖小时数",
+              f"cov={a.get('taf_cov_hours') if a else None}h")
+
+    b, _ = evidence.fetch_aviation_wx(icao, "上海", today)
+    if b and (a or {}).get("taf_cov_hours", 24) < 23.5:
+        rep.check(b.get("quality") == "mixed",
+                  "TAF 未完整覆盖 → 用城市天气补齐并标为 mixed", f"quality={b.get('quality')}")
+        rep.check(b.get("taf_cov_to") is not None,
+                  "补齐后仍透出官方预报覆盖到几点（用户要对自己的航班时间）")
+    else:
+        rep.check(b is not None, "官方数据完整覆盖该日", f"quality={b.get('quality') if b else None}")
+
+    far = (datetime.date.today() + datetime.timedelta(days=2)).isoformat()
+    c, _ = evidence.fetch_aviation_wx(icao, "上海", far)
+    rep.check(c is not None and c.get("quality") == "city_surface",
+              "完全超出 TAF 范围 → 整天回落城市天气并标注，不弃权",
+              f"quality={c.get('quality') if c else None}")
+
+
 def check_sufficiency_gate(rep: Report) -> None:
     """端到端充分性判定：白名单航线 ok=True，内陆当船走 ok=False。"""
     print("\n【5】充分性判定门")
@@ -221,6 +271,8 @@ def main() -> int:
     check_sufficiency_gate(rep)
     check_reachability_gates(rep)
     check_route_sampling(rep)
+    check_marine_boundary(rep)
+    check_taf_coverage(rep)
 
     total = rep.passed + len(rep.failed)
     print("\n" + "=" * 72)

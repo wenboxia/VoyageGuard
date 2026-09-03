@@ -431,6 +431,35 @@ def _geocode(name: str) -> tuple[float, float, str] | None:
     return float(best["latitude"]), float(best["longitude"]), best.get("name", name)
 
 
+MARINE_SEARCH_KM = float(os.getenv("VOYAGEGUARD_MARINE_SEARCH_KM", "50"))
+
+
+def nearest_marine_point(lat: float, lon: float, target_date: str) -> tuple[float, float, int] | None:
+    """
+    在限定半径内找最近的有浪高数据的网格点。返回 (lat, lon, 偏移公里) 或 None。
+
+    为什么需要：之前只测"geocoding 给的市中心坐标在不在海洋网格里"，
+    这判的是【点】不是【城市】。杭州在杭州湾湾顶，市中心没有海洋数据，
+    但往东 50 km 就有——同类的还有绍兴、嘉兴、台州。
+
+    半径 50 km 是实测定的，不是拍脑袋：
+      可通海城市（杭州/绍兴/嘉兴/宁波/台州）最近海域都在 50 km 内；
+      内陆城市（南京/镇江/扬州/武汉/合肥/郑州/长沙/南昌/西安）都在 100 km 外。
+    50 与 100 之间余量很大，阈值稳健。
+    """
+    rings = [0.0] + [r for r in (25.0, 50.0) if r <= MARINE_SEARCH_KM]
+    for r_km in rings:
+        r = r_km / 111.0
+        offsets = [(0.0, 0.0)] if r_km == 0 else [
+            (r, 0), (-r, 0), (0, r), (0, -r),
+            (r * 0.7, r * 0.7), (r * 0.7, -r * 0.7), (-r * 0.7, r * 0.7), (-r * 0.7, -r * 0.7)]
+        jobs = [(fetch_marine, lat + dla, lon + dlo, target_date) for dla, dlo in offsets]
+        for (dla, dlo), (data, _, _) in zip(offsets, _timed_parallel(jobs)):
+            if data is not None:
+                return round(lat + dla, 4), round(lon + dlo, 4), int(r_km)
+    return None
+
+
 def resolve_location(name: str, mode: str) -> tuple[dict | None, Missing | None]:
     """
     mode="marine"   ：必须解析出一个真实海域坐标（港口白名单 → Geocoding + 海洋 API 回验）
@@ -462,14 +491,17 @@ def resolve_location(name: str, mode: str) -> tuple[dict | None, Missing | None]
         return None, Missing("location_unresolved", "", name, "地名无法解析为坐标")
 
     lat, lon, matched = geo
-    # 回验：海洋 API 对内陆点返回全 null，用这个行为确认解析结果确实落在海域。
-    # 兜底可以不准，但不能静默地不准。
-    probe, _ = fetch_marine(lat, lon, datetime.date.today().isoformat())
-    if probe is None:
-        # 能解析出坐标但不是海域 —— 这是【范围边界】不是【系统失败】，措辞要分清楚
+    # 回验：不只测这一个点，而是在 50 km 内找最近的海域网格。
+    # 因为我们真正想知道的是"这个城市能不能通海"，而不是"市中心那个像素是不是海"。
+    hit = nearest_marine_point(lat, lon, datetime.date.today().isoformat())
+    if hit is None:
+        # 半径内找不到海 —— 这是【范围边界】不是【系统失败】，措辞要分清楚
         return None, Missing("not_coastal", "", name,
-                             f"该地点（{lat:.2f}, {lon:.2f}）不临海")
-    return {"lat": lat, "lon": lon, "source": "geocoding", "matched_name": matched}, None
+                             f"该地点（{lat:.2f}, {lon:.2f}）{MARINE_SEARCH_KM:.0f} 公里内没有可用的海域数据")
+    mlat, mlon, off = hit
+    return {"lat": mlat, "lon": mlon, "source": "geocoding",
+            "matched_name": matched, "offset_km": off,
+            "city_lat": lat, "city_lon": lon}, None
 
 
 # ---------------------------------------------------------------------------
@@ -647,6 +679,7 @@ def fetch_airport_wx(icao: str, target_date: str) -> tuple[dict | None, str | No
 
     winds, gusts, vis, wx = [], [], [], []
     source = None
+    periods: list = []
 
     if True:
         try:
@@ -690,9 +723,17 @@ def fetch_airport_wx(icao: str, target_date: str) -> tuple[dict | None, str | No
     if not winds:
         return None, f"{icao} 无可用的 METAR/TAF 数据"
 
+    # TAF 对【目标日这一天】实际覆盖了多少小时 —— 用来决定要不要补齐，并透出给用户。
+    cov_from = max(min((f.get("timeFrom", hi) for f in periods), default=hi), lo)
+    cov_to = min(max((f.get("timeTo", lo) for f in periods), default=lo), hi)
+    cov_h = max(0.0, (cov_to - cov_from) / 3600.0)
+
     max_wind = round(max(winds), 1)
     return {
         "date": target_date,
+        "taf_cov_from": cov_from if periods else None,
+        "taf_cov_to": cov_to if periods else None,
+        "taf_cov_hours": round(cov_h, 1),
         "max_wind_speed_ms": max_wind,
         "max_wind_beaufort": ms_to_beaufort(max_wind),
         "max_gust_ms": round(max(gusts), 1) if gusts else None,
@@ -722,13 +763,43 @@ def fetch_aviation_wx(icao: str | None, city: str, target_date: str) -> tuple[di
     if icao:
         data, err = fetch_airport_wx(icao, target_date)
         if data is not None:
+            # TAF 通常只覆盖约 30 小时，查"明天"时往往只覆盖 20/24 小时。
+            # 拿这 20 小时的极值当作整天结论，等于用局部数据冒充完整结论 ——
+            # 而漏掉晚间大风是"该警告时不警告"方向的错。所以未覆盖时段用城市天气补齐。
+            if (data.get("taf_cov_hours") or 0) < 23.5:
+                city_wx, _ = fetch_atmos(city, target_date)
+                if city_wx is not None:
+                    data = _merge_wx(data, city_wx)
             return data, None
-        # 官方数据取不到（超出 TAF 范围 / 该机场当时没发报）→ 回落，不弃权
+        # 官方数据完全取不到（无该机场 / 超出 TAF 范围）→ 整天回落，不弃权
     data, err = fetch_atmos(city, target_date)
     if data is not None:
         # 标明这是城市地面天气而不是跑道观测，能见度是近似值
         data["quality"] = "city_surface"
     return data, err
+
+
+def _merge_wx(taf: dict, city: dict) -> dict:
+    """
+    官方 TAF 未覆盖的时段用城市地面天气补齐，取合并后的极值。
+
+    两个源都是 10 米高度风速，量纲一致；差别是位置（机场 vs 市区）。
+    取最大风/最低能见度是"这一天最坏情况"，方向上偏保守 —— 这是安全的一侧。
+    合并痕迹全部透出，前端会明确告诉用户哪段是官方的。
+    """
+    out = dict(taf)
+    for key, pick in (("max_wind_speed_ms", max), ("max_gust_ms", max),
+                      ("min_visibility_km", min)):
+        a, b = taf.get(key), city.get(key)
+        vals = [v for v in (a, b) if v is not None]
+        out[key] = pick(vals) if vals else None
+    if out.get("max_wind_speed_ms") is not None:
+        out["max_wind_beaufort"] = ms_to_beaufort(out["max_wind_speed_ms"])
+    descs = [d for d in (taf.get("description"), city.get("description")) if d and d != "N/A"]
+    out["description"] = "、".join(dict.fromkeys("、".join(descs).split("、"))) or "N/A"
+    out["quality"] = "mixed"          # 官方 TAF + 城市地面天气
+    out["source"] = "aviationweather-taf + wttr.in"
+    return out
 
 
 # ---------------------------------------------------------------------------
