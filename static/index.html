@@ -782,16 +782,16 @@
     <div class="section-label">快速体验</div>
     <div class="preset-group">
       <button class="preset-btn" onclick="loadPreset('high-air')">
-        <span class="preset-name">✈️ 航空高风险</span>
-        <span class="preset-sub">大风天飞拉萨</span>
+        <span class="preset-name">✈️ 官方机场气象</span>
+        <span class="preset-sub">METAR/TAF + 航路情报</span>
       </button>
       <button class="preset-btn" onclick="loadPreset('high-ship')">
-        <span class="preset-name">🚢 海事高风险</span>
-        <span class="preset-sub">近海大风停航</span>
+        <span class="preset-name">🚢 跨海客滚航线</span>
+        <span class="preset-sub">含航线中点采样</span>
       </button>
       <button class="preset-btn" onclick="loadPreset('low')">
-        <span class="preset-name">✓ 低风险出行</span>
-        <span class="preset-sub">晴天微风放心走</span>
+        <span class="preset-name">◌ 证据不足演示</span>
+        <span class="preset-sub">内陆城市选船只</span>
       </button>
     </div>
 
@@ -884,12 +884,12 @@
       page_title:         'VoyageGuard · 出行气象决策助手',
       header_sub:         'AI 实时分析气象风险，告诉你「能不能走」',
       quick_demo:         '快速体验',
-      preset_air_name:    '✈️ 航空高风险',
-      preset_air_sub:     '大风天飞拉萨',
-      preset_ship_name:   '🚢 海事高风险',
-      preset_ship_sub:    '近海大风停航',
-      preset_low_name:    '✓ 低风险出行',
-      preset_low_sub:     '晴天微风放心走',
+      preset_air_name:    '✈️ 官方机场气象',
+      preset_air_sub:     'METAR/TAF + 航路情报',
+      preset_ship_name:   '🚢 跨海客滚航线',
+      preset_ship_sub:    '含航线中点采样',
+      preset_low_name:    '◌ 证据不足演示',
+      preset_low_sub:     '内陆城市选船只',
       plane_btn:          '✈️ 飞机',
       ship_btn:           '🚢 船只',
       origin_label:       '出发地',
@@ -947,12 +947,12 @@
       page_title:         'VoyageGuard · Weather Risk Assistant',
       header_sub:         'AI-powered real-time weather risk analysis — know if you can travel',
       quick_demo:         'Quick Demo',
-      preset_air_name:    '✈️ Aviation High Risk',
-      preset_air_sub:     'Strong winds to Lhasa',
-      preset_ship_name:   '🚢 Maritime High Risk',
-      preset_ship_sub:    'Coastal gale, suspended service',
-      preset_low_name:    '✓ Low Risk Travel',
-      preset_low_sub:     'Clear skies, light breeze',
+      preset_air_name:    '✈️ Official Airport Wx',
+      preset_air_sub:     'METAR/TAF + SIGMET',
+      preset_ship_name:   '🚢 Cross-strait Ferry',
+      preset_ship_sub:    'with route sampling',
+      preset_low_name:    '◌ Insufficient Evidence',
+      preset_low_sub:     'inland cities, by ship',
       plane_btn:          '✈️ Plane',
       ship_btn:           '🚢 Ship',
       origin_label:       'Origin',
@@ -1110,9 +1110,12 @@
 
   // ── Presets ──
   const PRESETS = {
-    'high-air':  { origin: '上海', destination: '拉萨', transport: 'plane' },
-    'high-ship': { origin: '舟山', destination: '嵊泗', transport: 'ship', vessel: 'small' },
-    'low':       { origin: '杭州', destination: '南京', transport: 'plane' },
+    // 预设只描述场景，不承诺风险等级 —— 等级取决于当天真实天气，写死名字会自相矛盾。
+    // 第三个是确定性的：内陆城市选船只，不管天气如何都会弃权，
+    // 而弃权恰好是这个项目最独特的能力。
+    'high-air':  { origin: '上海', destination: '广州', transport: 'plane' },
+    'high-ship': { origin: '烟台', destination: '大连', transport: 'ship', vessel: 'unknown' },
+    'low':       { origin: '北京', destination: '西安', transport: 'ship', vessel: 'unknown' },
   };
   function loadPreset(key) {
     const p = PRESETS[key];
