@@ -171,7 +171,10 @@ def scenario_out_of_horizon(rep, client):
     data = resp.json()
     rep.check(data["risk_level"] == "UNKNOWN", "判定为 UNKNOWN", f"got={data['risk_level']}")
     codes = {m["code"] for m in data["evidence"]["sufficiency"]["missing"]}
-    rep.check("date_out_of_range" in codes, "缺失原因为超出预报范围", f"codes={sorted(codes)}")
+    # 航空走官方机场预报（TAF，约 30 小时），海事走 wttr.in（3 天），
+    # 两条路径超范围的缺失码不同，都要接受
+    rep.check(bool(codes & {"date_out_of_range", "beyond_taf_horizon"}),
+              "缺失原因为超出官方预报范围", f"codes={sorted(codes)}")
 
 
 def scenario_air_route(rep, client):

@@ -101,6 +101,14 @@ SOURCES = {
         "B737 干跑道约 15 m/s（30 节）、A320 约 29 节，全机型区间 25–33 节。"
         "【湿跑道 B737 降至 12 m/s，刹车效应中等以下降至 7 m/s】。分机型、分道面，不是通用红线。",
     ),
+    "sigmet": Source(
+        "sigmet", "ICAO 重要气象情报（SIGMET）",
+        "ICAO Significant Meteorological Information (SIGMET)",
+        "https://aviationweather.gov/gfa/#sigmet",
+        "由各飞行情报区的气象监视台发布，是航路危险天气（雷暴、积冰、颠簸、火山灰、"
+        "热带气旋）的官方产品。【有效期只有 4-6 小时】，所以只能用于当天查询，"
+        "而且我们不知道用户具体几点的航班——文案必须带上有效期让用户自己判断。",
+    ),
     "mot_reply_6750": Source(
         "mot_reply_6750", "交通运输部关于十三届全国人大一次会议第 6750 号建议的答复函",
         "MOT reply to NPC proposal No. 6750",
@@ -175,6 +183,18 @@ PROD_RULES = {
         ),
     },
 }
+
+# 航路危险天气：SIGMET 是官方产品，但有效期只有几小时，且处置以绕飞为主。
+# 查证依据：航路遇雷雨的处置顺序是 绕飞 → 返航/备降 → 只有大范围绕不过才取消；
+# 民航局统计里空管/流量原因仅占 0.02%。所以定 MEDIUM 而不是 HIGH。
+SIGMET_LEVEL = "MEDIUM"
+SIGMET_HAZARD_ZH = {
+    "TS": "雷暴", "TSGR": "雷暴伴冰雹", "TURB": "颠簸", "ICE": "积冰",
+    "MTW": "山地波", "DS": "沙暴", "SS": "尘暴", "VA": "火山灰", "TC": "热带气旋",
+    "RDOACT CLD": "放射性云",
+}
+SIGMET_QUALIFIER_ZH = {"SEV": "严重", "MOD": "中度", "EMBD": "嵌入性",
+                       "OBSC": "隐蔽性", "FRQ": "频繁", "SQL": "飑线", "ISOL": "孤立"}
 
 # 雷暴：无官方阈值，纯运营经验，单列
 THUNDER_KEYWORDS = ("雷暴", "雷阵雨", "thunder")

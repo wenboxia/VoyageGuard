@@ -657,6 +657,11 @@
     .missing-list { margin: 0; padding-left: 18px; }
     .missing-list li { margin-bottom: 5px; }
 
+    .date-hint {
+      margin: -8px 0 16px; font-size: 11.5px; line-height: 1.55;
+      color: var(--text-muted);
+    }
+
     /* ─── 触发的官方判据 ─── */
     .trigger-item {
       display: flex; gap: 9px; padding: 9px 0;
@@ -820,6 +825,7 @@
 
     <div class="section-label">出行日期</div>
     <div class="date-group" id="date-group"></div>
+    <div class="date-hint" id="date-hint">航空只支持今天和明天 —— 官方机场预报（TAF）约覆盖 30 小时</div>
 
     <button class="submit-btn" id="submit-btn" onclick="submitAssess()">开始评估</button>
   </div>
@@ -872,7 +878,7 @@
       header_sub:         'AI 实时分析气象风险，告诉你「能不能走」',
       quick_demo:         '快速体验',
       preset_air_name:    '✈️ 航空高风险',
-      preset_air_sub:     '大风天飞拉萨',
+      preset_air_sub:     '官方机场预报判定',
       preset_ship_name:   '🚢 海事高风险',
       preset_ship_sub:    '近海大风停航',
       preset_low_name:    '✓ 低风险出行',
@@ -899,6 +905,8 @@
       vessel_large_sub:   '能把车开上船',
       vessel_unknown:     '不确定',
       vessel_unknown_sub: '按最严标准算',
+      date_hint_air:      '航空只支持今天和明天 —— 官方机场预报（TAF）约覆盖 30 小时',
+      date_hint_sea:      '海事支持今天起 3 天',
       triggers_header:    '触发的官方判据',
       cls_REG:            '法规',
       cls_WARN:           '官方预警',
@@ -930,7 +938,7 @@
       header_sub:         'AI-powered real-time weather risk analysis — know if you can travel',
       quick_demo:         'Quick Demo',
       preset_air_name:    '✈️ Aviation High Risk',
-      preset_air_sub:     'Strong winds to Lhasa',
+      preset_air_sub:     'Official airport forecast',
       preset_ship_name:   '🚢 Maritime High Risk',
       preset_ship_sub:    'Coastal gale, suspended service',
       preset_low_name:    '✓ Low Risk Travel',
@@ -957,6 +965,8 @@
       vessel_large_sub:   'cars drive aboard',
       vessel_unknown:     'Not sure',
       vessel_unknown_sub: 'uses the strictest standard',
+      date_hint_air:      'Flights: today and tomorrow only — official airport forecasts (TAF) cover about 30 hours',
+      date_hint_sea:      'Sailings: today plus the next 2 days',
       triggers_header:    'Official criteria triggered',
       cls_REG:            'REGULATION',
       cls_WARN:           'OFFICIAL WARNING',
@@ -1030,6 +1040,8 @@
     document.getElementById('destination').placeholder = t('dest_ph');
 
     rebuildDateButtons();
+    document.getElementById('date-hint').textContent =
+      transport === 'plane' ? t('date_hint_air') : t('date_hint_sea');
 
     const submitBtn = document.getElementById('submit-btn');
     if (!submitBtn.disabled) submitBtn.textContent = t('submit');
@@ -1082,7 +1094,7 @@
 
   // ── Presets ──
   const PRESETS = {
-    'high-air':  { origin: '上海', destination: '拉萨', transport: 'plane' },
+    'high-air':  { origin: '乌鲁木齐', destination: '哈尔滨', transport: 'plane' },
     'high-ship': { origin: '舟山', destination: '嵊泗', transport: 'ship', vessel: 'small' },
     'low':       { origin: '杭州', destination: '南京', transport: 'plane' },
   };
@@ -1103,6 +1115,9 @@
     document.getElementById('btn-ship').classList.toggle('active',  tp === 'ship');
     // 船型只在海运场景下有意义 —— 两类船的禁航风速差了近一倍（6级 vs 7级）
     document.getElementById('vessel-wrap').classList.toggle('visible', tp === 'ship');
+    // 两条路径的官方预报覆盖范围不同：航空用 TAF（~30h），海事用 wttr.in（3 天）
+    document.getElementById('date-hint').textContent =
+      tp === 'plane' ? t('date_hint_air') : t('date_hint_sea');
   }
 
   function setVessel(v) {

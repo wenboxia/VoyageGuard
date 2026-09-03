@@ -220,6 +220,29 @@ def detect_triggers(bundle: EvidenceBundle) -> list[Trigger]:
                     "cancellation risk (this tool's judgement)",
                     "crosswind", None, ""))
 
+    # ── 航路危险天气：SIGMET（仅航空、仅当天，evidence 层已限定）─────────
+    for sg in bundle.sigmets:
+        hz = S.SIGMET_HAZARD_ZH.get(sg.get("hazard") or "", sg.get("hazard") or "危险天气")
+        ql = S.SIGMET_QUALIFIER_ZH.get(sg.get("qualifier") or "", "")
+        fir = (sg.get("firName") or "").split(" ", 1)[-1]
+        valid = ""
+        if sg.get("validTimeTo"):
+            import datetime as _dt
+            end = _dt.datetime.fromtimestamp(sg["validTimeTo"], _dt.timezone.utc) \
+                + _dt.timedelta(hours=8)
+            valid = f"，有效期至北京时间 {end:%H:%M}"
+        band = ""
+        if sg.get("base") is not None and sg.get("top") is not None:
+            band = f"（FL{sg['base'] // 100:03d}-{sg['top'] // 100:03d}）"
+        out.append(Trigger(
+            f"sigmet_{(sg.get('hazard') or 'wx').lower()}", "WARN", S.SIGMET_LEVEL, "航路",
+            f"航路穿越 {fir} 飞行情报区生效中的重要气象情报（SIGMET）：{ql}{hz}{band}{valid}。"
+            f"航路危险天气通常由绕飞处置，是否影响航班以航司通知为准",
+            f"Route crosses an active SIGMET in {fir} FIR: {sg.get('qualifier') or ''} "
+            f"{sg.get('hazard') or ''}{band}. En-route hazards are normally handled by "
+            f"rerouting; follow the airline's notice for actual impact",
+            "sigmet"))
+
     return out
 
 
@@ -259,6 +282,12 @@ MISSING_TEXT = {
         "This location is not on the coast, so no maritime assessment is given "
         "(inland waterway and lake routes are likewise out of scope — inland navigation follows a "
         "separate official standard that is wind-tiered and does not use wave height at all)"),
+    "beyond_taf_horizon": (
+        "出行日期超出该机场官方预报（TAF）的覆盖范围。TAF 通常只覆盖约 30 小时，"
+        "更远的日期没有官方机场预报可依据，本工具不用其他数据源顶替",
+        "The travel date is beyond the airport's official TAF forecast horizon. TAF typically "
+        "covers about 30 hours; beyond that there is no official airport forecast to rely on, and "
+        "this tool will not substitute another data source"),
     "no_airport": (
         "该地点不在本工具收录的民航机场清单内，因此不按航空出行评估",
         "This location is not in the tool's civil-airport list, so no aviation assessment is given"),

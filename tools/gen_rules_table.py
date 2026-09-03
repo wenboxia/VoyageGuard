@@ -48,6 +48,9 @@ def main() -> None:
     print(f"| 航空 接近窄体机侧风限制 | 平均风 ≥{bft(p['value'])} | HIGH | **`PROD` 本工具判定** "
           f"| [{S.SOURCES['crosswind'].name_zh}]({S.SOURCES['crosswind'].url}) |")
     print(f"| 航空 雷暴 | 天气描述含雷暴 | MEDIUM | **`PROD` 本工具判定** | — |")
+    sg = S.SOURCES["sigmet"]
+    print(f"| 航路穿越生效中的 SIGMET | 任一危险类型（雷暴/积冰/颠簸/热带气旋等） "
+          f"| {S.SIGMET_LEVEL} | `WARN` 官方预警 | [{sg.name_zh}]({sg.url}) |")
 
     print("\n### 两条 `PROD` 规则的理由\n")
     print(f"**小船遇海浪蓝色预警 → HIGH**（官方只给了分船型的风速禁航线，没给分船型的浪高线）\n")
@@ -59,7 +62,7 @@ def main() -> None:
 
     print("### 每条来源的已知局限\n")
     for k in ("small_craft_ban", "passenger_boarding_ban", "gale_warning", "wave_warning",
-              "lvto", "crosswind", "yangtze_ban", "mot_reply_6750"):
+              "lvto", "crosswind", "sigmet", "yangtze_ban", "mot_reply_6750"):
         s = S.SOURCES[k]
         print(f"- **[{s.name_zh}]({s.url})** — {s.caveat_zh}")
 

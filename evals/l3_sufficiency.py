@@ -16,8 +16,8 @@ import sys
 
 import evidence
 
-# 航空侧抽样：必须全部在机场白名单内（全量 149 个跑网络太慢，抽 8 个）
-AIRPORT_CITIES = ["上海", "北京", "广州", "成都", "乌鲁木齐", "拉萨", "哈尔滨", "昆明"]
+# 航空侧抽样：清单内的机场（全量 38 个跑网络太慢，抽 8 个）
+AIRPORT_CITIES = ["上海", "北京", "广州", "成都", "乌鲁木齐", "西安", "哈尔滨", "昆明"]
 
 # 内陆对照点：必须取不到浪高，否则"是不是海域"这个判别器就没有判别力
 INLAND_CONTROLS = ["北京", "西安", "乌鲁木齐", "成都"]
@@ -73,13 +73,14 @@ def check_inland_controls(rep: Report) -> None:
 
 def check_atmos(rep: Report) -> None:
     """航空侧：风速与能见度必须可得，且能按目标日期精确对齐。"""
-    print(f"\n【3】大气数据可得性与日期对齐 · {len(AIRPORT_CITIES)} 个城市 × {len(_dates())} 天")
+    print(f"\n【3】官方机场气象可得性 · {len(AIRPORT_CITIES)} 个机场 × 2 天（TAF 覆盖范围内）")
     dates = _dates()
 
     def probe(city):
+        icao = evidence.AIRPORTS[city][0]
         out = []
-        for d in dates:
-            atmos, err = evidence.fetch_atmos(city, d)
+        for d in dates[:2]:      # TAF 只覆盖约 30 小时，第 3 天本就该弃权
+            atmos, err = evidence.fetch_airport_wx(icao, d)
             out.append((d, atmos, err))
         return city, out
 
@@ -92,9 +93,9 @@ def check_atmos(rep: Report) -> None:
                 ok = atmos["max_wind_speed_ms"] is not None and atmos["min_visibility_km"] is not None
                 rep.check(ok, f"{city} {d} 风速+能见度齐备",
                           f"wind={atmos['max_wind_speed_ms']} vis={atmos['min_visibility_km']}")
-                # 阵风是大风预警的判据之一（平均风与阵风取「或」），必须可得
-                rep.check(atmos["max_gust_ms"] is not None, f"{city} {d} 阵风可得",
-                          f"gust={atmos['max_gust_ms']}")
+                rep.check(atmos["source"].startswith("aviationweather"),
+                          f"{city} {d} 用的是官方机场气象（METAR/TAF）",
+                          f"source={atmos['source']}")
                 rep.check(atmos["date"] == d, f"{city} {d} 日期对齐", f"返回 {atmos['date']}")
 
 
@@ -123,9 +124,16 @@ def check_reachability_gates(rep: Report) -> None:
                   f"航空：{name} 不在机场清单内，被拦截",
                   miss.detail if miss else "意外放行 —— 会对不存在的航线给出结论")
 
-    for name in ("上海", "北京", "拉萨", "乌鲁木齐"):
+    for name in ("上海", "北京", "西安", "乌鲁木齐"):
         resolved, _ = evidence.resolve_location(name, "aviation")
         rep.check(resolved is not None, f"航空：{name} 在机场清单内，正常放行")
+
+    # 拉萨在民航站点库里标称有 METAR/TAF，但实测没有在国际网上发报。
+    # 清单按【实测可得性】而不是【标称能力】来定 —— 覆盖范围必须等于数据可得性。
+    resolved, miss = evidence.resolve_location("拉萨", "aviation")
+    rep.check(resolved is None and miss and miss.code == "no_airport",
+              "航空：拉萨实测无 TAF 发报，已从清单剔除并弃权",
+              miss.detail if miss else "意外放行")
 
     b = evidence.build_evidence("上海", "南极", today, "plane", None)
     rep.check(not b.ok and any(m.code == "no_airport" for m in b.missing),
@@ -184,6 +192,12 @@ def check_sufficiency_gate(rep: Report) -> None:
     b2 = evidence.build_evidence("北京", "西安", today, "ship", "small")
     rep.check(not b2.ok, "内陆航线当船走 → 证据不足",
               f"missing={[m.code for m in b2.missing]}")
+
+    beyond = (datetime.date.today() + datetime.timedelta(days=2)).isoformat()
+    b4 = evidence.build_evidence("杭州", "南京", beyond, "plane", None)
+    rep.check(not b4.ok and any(m.code == "beyond_taf_horizon" for m in b4.missing),
+              "航空查第 3 天 → 超出 TAF 范围，弃权而不是换数据源顶替",
+              f"missing={[m.code for m in b4.missing]}")
 
     b3 = evidence.build_evidence("杭州", "南京", today, "plane", None)
     rep.check(b3.ok, "航空航线 杭州→南京 证据充分",

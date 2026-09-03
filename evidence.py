@@ -124,49 +124,60 @@ PORT_ALIASES: dict[str, str] = {
 
 
 # ---------------------------------------------------------------------------
-# 民航机场白名单 —— 航空侧的可达性契约
+# 民航机场白名单 —— 从官方航空气象数据源导出，不是手写的
 # ---------------------------------------------------------------------------
-# 为什么需要：航空判据只要风速和能见度，而【任何地名都能查到风速和能见度】。
-# 所以在加这个清单之前，"上海 → 南极 飞机" 会返回"低风险，建议出行"，
-# "北京 → 珠穆朗玛峰" 也能正常出结论。船舶侧因为需要浪高，顺带获得了一个
-# "这里是不是海"的校验；航空侧没有等价的天然校验，只能靠白名单。
+# 为什么必须有这个清单：航空判据只要风速和能见度，而【任何地名都能查到风速和能见度】。
+# 在加它之前，"上海 → 南极 飞机" 会返回"低风险，建议出行"。船舶侧因为需要浪高，
+# 顺带获得了"这里是不是海"的校验；航空侧没有等价的天然校验。
 #
-# 这里只存名字不存坐标：120 个机场的精确坐标我无法逐一核实，而城市名查 wttr.in
-# 本来就能用。代价是拿到的是城市气象而非机场跑道气象（机场通常离市区 20-40km）,
-# 这个简化写在 README 的已知取舍里。
+# 名单直接来自 aviationweather.gov 的站点接口（中国境内发布 METAR/TAF 的机场），
+# 每个 ICAO 都经该接口验证过。这样「我们覆盖哪些机场」和「哪些机场有官方气象数据」
+# 由构造保证是同一件事，不会漂移。
 #
-# 清单不完整是刻意的：漏收一个支线机场会导致弃权（安全方向），
-# 而错误地放行一个不存在的航点会导致"建议出行"（危险方向）。
-AIRPORTS: set[str] = {
-    # 直辖市与主要枢纽
-    "北京", "上海", "天津", "重庆", "广州", "深圳", "成都", "杭州", "西安", "昆明",
-    "南京", "郑州", "武汉", "长沙", "青岛", "厦门", "大连", "沈阳", "哈尔滨", "济南",
-    # 省会 / 首府
-    "石家庄", "太原", "呼和浩特", "长春", "合肥", "福州", "南昌", "南宁", "海口",
-    "贵阳", "拉萨", "兰州", "西宁", "银川", "乌鲁木齐",
-    # 华北 / 东北
-    "唐山", "秦皇岛", "邯郸", "张家口", "大同", "运城", "包头", "鄂尔多斯", "赤峰",
-    "呼伦贝尔", "鞍山", "丹东", "锦州", "延吉", "齐齐哈尔", "牡丹江", "佳木斯", "大庆",
-    # 华东
-    "徐州", "连云港", "常州", "南通", "盐城", "扬州", "无锡", "温州", "台州", "舟山",
-    "义乌", "黄山", "阜阳", "烟台", "威海", "济宁", "临沂", "潍坊", "日照", "泉州",
-    "武夷山", "赣州", "景德镇", "九江", "宁波",
-    # 华中
-    "洛阳", "南阳", "宜昌", "襄阳", "恩施", "张家界", "常德", "怀化",
-    # 华南
-    "珠海", "汕头", "湛江", "梅州", "揭阳", "桂林", "柳州", "北海", "三亚", "金门",
-    # 西南
-    "绵阳", "宜宾", "泸州", "南充", "西昌", "九寨沟", "丽江", "大理", "西双版纳",
-    "芒市", "腾冲", "遵义", "兴义", "林芝", "日喀则",
-    # 西北
-    "榆林", "汉中", "敦煌", "嘉峪关", "格尔木", "中卫", "喀什", "库尔勒", "伊宁",
-    "阿勒泰", "和田", "克拉玛依",
-    # 港澳台
-    "香港", "澳门", "台北", "高雄", "台中",
-    # 主要国际枢纽
-    "东京", "大阪", "首尔", "新加坡", "曼谷", "吉隆坡", "悉尼", "墨尔本",
-    "伦敦", "巴黎", "法兰克福", "阿姆斯特丹", "莫斯科", "迪拜", "多哈",
-    "纽约", "洛杉矶", "旧金山", "西雅图", "温哥华", "多伦多",
+# 清单只保留【实测确认正在发布 TAF 的机场】。站点库里另有 20 个标称有 METAR/TAF
+# 但实际没有在国际网上发报（含拉萨 ZULS），已剔除 —— 覆盖范围必须等于数据可得性，
+# 不能靠一张"理论上应该有数据"的名单。
+AIRPORTS: dict[str, tuple[str, float, float]] = {
+    "北京": ("ZBAA", 40.082, 116.603),   # Beijing Intl
+    "大兴": ("ZBAD", 39.501, 116.412),   # Beijing/Daxing Arpt
+    "呼和浩特": ("ZBHH", 40.854, 111.827),   # Hohhot/Baita Intl
+    "石家庄": ("ZBSJ", 38.281, 114.697),   # Zhengding Arpt
+    "天津": ("ZBTJ", 39.124, 117.346),   # Tianjin/Binhai Intl
+    "太原": ("ZBYN", 37.747, 112.628),   # Taiyuan/Wusu Intl
+    "广州": ("ZGGG", 23.392, 113.307),   # Guangzhou/Baiyun Intl
+    "长沙": ("ZGHA", 28.18, 113.219),   # Changsha/Huanghua Arpt
+    "桂林": ("ZGKL", 25.22, 110.04),   # Guilin/Liangjiang Intl
+    "南宁": ("ZGNN", 22.609, 108.173),   # Nanning/Wuwei Intl
+    "揭阳": ("ZGOW", 23.55, 116.505),   # Jieyang/Chaoshan Intl
+    "潮汕": ("ZGOW", 23.55, 116.505),   # Jieyang/Chaoshan Intl
+    "汕头": ("ZGOW", 23.55, 116.505),   # Jieyang/Chaoshan Intl
+    "深圳": ("ZGSZ", 22.639, 113.803),   # Shenzhen/Boan Intl
+    "郑州": ("ZHCC", 34.52, 113.834),   # Zhengzhou/Xinzheng Arpt
+    "鄂州": ("ZHEC", 30.34237, 115.03893),   # Ezhou Huahu Arpt
+    "武汉": ("ZHHH", 30.783, 114.205),   # Wuhan/Tianhe Intl
+    "海口": ("ZJHK", 19.934, 110.445),   # Haikou/Meilan Intl
+    "三亚": ("ZJSY", 18.303, 109.412),   # Sanya/Phoenix Intl
+    "兰州": ("ZLLL", 36.513, 103.623),   # Lanzhou/Zhongchuan Arpt
+    "西安": ("ZLXY", 34.449, 108.752),   # Xianyang Intl
+    "昆明": ("ZPPP", 25.107, 102.934),   # Kunming/Changshui Intl
+    "厦门": ("ZSAM", 24.546, 118.131),   # Xiamen-Gaoqi Intl
+    "福州": ("ZSFZ", 25.936, 119.666),   # Fuzhou/Changle Intl
+    "杭州": ("ZSHC", 30.229, 120.434),   # Hangzhou/Xiaoshan Intl
+    "济南": ("ZSJN", 36.856, 117.206),   # Jinan Yaoqiang Intl
+    "宁波": ("ZSNB", 29.827, 121.462),   # Ningbo/Lishe Intl
+    "南京": ("ZSNJ", 31.739, 118.863),   # Nanjing/Lukou Intl
+    "合肥": ("ZSOF", 31.99, 116.965),   # Hefei/Xinqiao Intl
+    "上海": ("ZSPD", 31.146, 121.8),   # Shanghai/Pudong Intl
+    "青岛": ("ZSQD", 36.362, 120.087),   # Qingdao/Jiaodong Arpt
+    "重庆": ("ZUCK", 29.718, 106.639),   # Chongqing/Jiangbei Intl
+    "贵阳": ("ZUGY", 26.538, 106.801),   # Guizhou/Longdongbao Arpt
+    "成都": ("ZUUU", 30.576, 103.95),   # Chengdu/Shuangliu Intl
+    "喀什": ("ZWSH", 39.542, 76.019),   # Kashgar Arpt
+    "乌鲁木齐": ("ZWWW", 43.907, 87.474),   # Ürümqi/Diwopu Arpt
+    "长春": ("ZYCC", 43.993, 125.682),   # Changchun/Longjia Intl
+    "哈尔滨": ("ZYHB", 45.628, 126.259),   # Harbin/Taiping Arpt
+    "大连": ("ZYTL", 38.961, 121.556),   # Dalian/Zhoushuizi Intl
+    "沈阳": ("ZYTX", 41.639, 123.485),   # Shenyang/Taoxian Intl
 }
 
 AIRPORT_ALIASES: dict[str, str] = {
@@ -175,25 +186,24 @@ AIRPORT_ALIASES: dict[str, str] = {
     "nanjing": "南京", "wuhan": "武汉", "qingdao": "青岛", "xiamen": "厦门",
     "dalian": "大连", "shenyang": "沈阳", "harbin": "哈尔滨", "chongqing": "重庆",
     "tianjin": "天津", "lhasa": "拉萨", "urumqi": "乌鲁木齐", "sanya": "三亚",
-    "haikou": "海口", "hongkong": "香港", "hong kong": "香港", "macau": "澳门",
-    "tokyo": "东京", "osaka": "大阪", "seoul": "首尔", "singapore": "新加坡",
-    "bangkok": "曼谷", "london": "伦敦", "paris": "巴黎", "dubai": "迪拜",
-    "new york": "纽约", "los angeles": "洛杉矶", "san francisco": "旧金山",
+    "haikou": "海口", "changsha": "长沙", "zhengzhou": "郑州", "jinan": "济南",
+    "PEK": "北京", "PKX": "大兴", "PVG": "上海", "SHA": "上海", "CAN": "广州",
+    "SZX": "深圳", "CTU": "成都", "HGH": "杭州", "XIY": "西安", "KMG": "昆明",
 }
 
 
-def _lookup_airport(name: str) -> str | None:
-    """机场白名单查找。返回规范名，未命中返回 None。"""
+def _lookup_airport(name: str) -> tuple[str, str, float, float] | None:
+    """返回 (规范中文名, ICAO, lat, lon)，未命中返回 None。清单内的机场全部发布 TAF。"""
     raw = (name or "").strip()
     if raw in AIRPORTS:
-        return raw
+        return raw, *AIRPORTS[raw]
     norm = _normalize(raw)
     for alias, canonical in AIRPORT_ALIASES.items():
-        if _normalize(alias) == norm:
-            return canonical
+        if _normalize(alias) == norm and canonical in AIRPORTS:
+            return canonical, *AIRPORTS[canonical]
     for canonical in AIRPORTS:
         if _normalize(canonical) == norm:
-            return canonical
+            return canonical, *AIRPORTS[canonical]
     return None
 
 
@@ -259,6 +269,7 @@ class EvidenceBundle:
     trace: list[TraceStep] = field(default_factory=list)
     quality: str = "full"          # full | partial
     route: dict = field(default_factory=dict)   # 航路采样覆盖情况，如实透出
+    sigmets: list = field(default_factory=list) # 航路穿越的生效中重要气象情报
 
     @property
     def ok(self) -> bool:
@@ -271,6 +282,7 @@ class EvidenceBundle:
             "vessel_type": self.vessel_type,
             "locations": self.locations,
             "route": self.route,
+            "sigmets": self.sigmets,
             "sufficiency": {
                 "ok": self.ok,
                 "quality": self.quality,
@@ -333,8 +345,9 @@ def resolve_location(name: str, mode: str) -> tuple[dict | None, Missing | None]
     if mode == "aviation":
         hit = _lookup_airport(name)
         if hit:
-            return {"lat": None, "lon": None, "source": "airport_whitelist",
-                    "matched_name": hit}, None
+            canonical, icao, lat, lon = hit
+            return {"lat": lat, "lon": lon, "source": "airport_whitelist",
+                    "matched_name": canonical, "icao": icao}, None
         return None, Missing("no_airport", "", name,
                              "该地点不在已收录的民航机场清单内")
 
@@ -488,6 +501,109 @@ def fetch_atmos_archive(lat: float, lon: float, target_date: str) -> tuple[dict 
     }, None
 
 
+AVWX_BASE = os.getenv("VOYAGEGUARD_AVWX_BASE", "https://aviationweather.gov/api/data")
+
+KT_TO_MS = 0.514444
+SM_TO_KM = 1.60934
+CN_UTC_OFFSET_H = 8      # 名单内全是中国境内机场，用固定 +8 换算"当地那一天"
+
+
+def _visib_km(v) -> float | None:
+    """METAR/TAF 的能见度是法定英里；'6+' 表示 10km 以上（无限制）。"""
+    if v is None:
+        return None
+    if isinstance(v, str):
+        v = v.replace("+", "").strip()
+        if not v:
+            return None
+    try:
+        return round(float(v) * SM_TO_KM, 2)
+    except (TypeError, ValueError):
+        return None
+
+
+def _day_window_utc(target_date: str) -> tuple[int, int]:
+    d = datetime.date.fromisoformat(target_date)
+    start = datetime.datetime.combine(d, datetime.time(0, 0),
+                                      tzinfo=datetime.timezone.utc) \
+        - datetime.timedelta(hours=CN_UTC_OFFSET_H)
+    return int(start.timestamp()), int(start.timestamp()) + 86400
+
+
+def fetch_airport_wx(icao: str, target_date: str) -> tuple[dict | None, str | None]:
+    """
+    机场气象：官方 METAR（实况）与 TAF（预报）。
+
+    为什么换掉 wttr.in：METAR/TAF 是【民航官方气象产品】，取的是机场跑道观测
+    而不是城市天气，能见度是航空口径，风速单位可直接换算。wttr.in 给的是城市地面天气。
+
+    代价（写进 README 的已知取舍）：
+      · 只有名单内的机场有数据（实测确认在发报的 38 个）
+      · TAF 只覆盖约 30 小时 —— 超出范围必须弃权，不能拿实况冒充预报
+    """
+    today = datetime.date.today().isoformat()
+    lo, hi = _day_window_utc(target_date)
+
+    winds, gusts, vis, wx = [], [], [], []
+    source = None
+
+    if True:
+        try:
+            tafs = _get_json(f"{AVWX_BASE}/taf?ids={icao}&format=json")
+        except Exception as e:
+            return None, f"TAF 请求失败: {e}"
+        periods = [f for t in (tafs or []) for f in (t.get("fcsts") or [])
+                   if f.get("timeTo", 0) > lo and f.get("timeFrom", 0) < hi]
+        if not periods and target_date != today:
+            return None, f"beyond_taf_horizon:{target_date} 超出该机场 TAF 的预报范围"
+        for f in periods:
+            if f.get("wspd") is not None:
+                winds.append(f["wspd"] * KT_TO_MS)
+            if f.get("wgst") is not None:
+                gusts.append(f["wgst"] * KT_TO_MS)
+            v = _visib_km(f.get("visib"))
+            if v is not None:
+                vis.append(v)
+            if f.get("wxString"):
+                wx.append(str(f["wxString"]))
+        if periods:
+            source = "aviationweather-taf"
+
+    if target_date == today:
+        try:
+            metars = _get_json(f"{AVWX_BASE}/metar?ids={icao}&format=json")
+        except Exception:
+            metars = []
+        for m in (metars or []):
+            if m.get("wspd") is not None:
+                winds.append(m["wspd"] * KT_TO_MS)
+            if m.get("wgst") is not None:
+                gusts.append(m["wgst"] * KT_TO_MS)
+            v = _visib_km(m.get("visib"))
+            if v is not None:
+                vis.append(v)
+            if m.get("wxString"):
+                wx.append(str(m["wxString"]))
+            source = source or "aviationweather-metar"
+
+    if not winds:
+        return None, f"{icao} 无可用的 METAR/TAF 数据"
+
+    max_wind = round(max(winds), 1)
+    return {
+        "date": target_date,
+        "max_wind_speed_ms": max_wind,
+        "max_wind_beaufort": ms_to_beaufort(max_wind),
+        "max_gust_ms": round(max(gusts), 1) if gusts else None,
+        "min_visibility_km": min(vis) if vis else None,
+        "max_temp_c": None, "min_temp_c": None,
+        "description": "、".join(dict.fromkeys(wx)) or "N/A",
+        "quality": "full" if source == "aviationweather-taf" else "observation_only",
+        "source": source or "aviationweather",
+        "fetched_at": _now_iso(),
+    }, None
+
+
 # ---------------------------------------------------------------------------
 # 海洋数据（Open-Meteo Marine）
 # ---------------------------------------------------------------------------
@@ -571,6 +687,70 @@ def route_sample_points(lat1, lon1, lat2, lon2) -> list[tuple[float, float]]:
     return [_interpolate(lat1, lon1, lat2, lon2, (i + 1) / (n + 1)) for i in range(n)]
 
 
+def fetch_sigmets() -> tuple[list[dict], str | None]:
+    """当前生效的国际重要气象情报（SIGMET）。"""
+    try:
+        data = _get_json(f"{AVWX_BASE}/isigmet?format=json")
+    except Exception as e:
+        return [], f"SIGMET 请求失败: {e}"
+    return [x for x in (data or []) if x.get("coords")], None
+
+
+def _polygons(coords) -> list[list[dict]]:
+    """SIGMET 的 coords 有两种形状：单个多边形，或多个多边形的嵌套列表。统一成列表的列表。"""
+    if not coords:
+        return []
+    raw = [coords] if isinstance(coords[0], dict) else [c for c in coords if c]
+    # 少数 SIGMET 的顶点坐标带 null，剔掉；剩不足 3 个点的多边形丢弃
+    out = []
+    for poly in raw:
+        pts = [q for q in poly
+               if isinstance(q, dict) and q.get("lat") is not None and q.get("lon") is not None]
+        if len(pts) >= 3:
+            out.append(pts)
+    return out
+
+
+def _point_in_polygon(lat: float, lon: float, poly: list[dict]) -> bool:
+    """射线法。SIGMET 区域是经纬度多边形，跨度不大，平面近似足够。"""
+    inside, n = False, len(poly)
+    j = n - 1
+    for i in range(n):
+        yi, xi = poly[i]["lat"], poly[i]["lon"]
+        yj, xj = poly[j]["lat"], poly[j]["lon"]
+        if ((xi > lon) != (xj > lon)) and \
+           (lat < (yj - yi) * (lon - xi) / (xj - xi) + yi):
+            inside = not inside
+        j = i
+    return inside
+
+
+def sigmets_on_route(lat1, lon1, lat2, lon2, samples: int = 20) -> list[dict]:
+    """
+    航路是否穿越生效中的 SIGMET。沿大圆取 samples+1 个点做点在多边形内判断。
+
+    只在【查询当天】才有意义 —— SIGMET 有效期只有 4-6 小时。
+    """
+    active, err = fetch_sigmets()
+    if err or not active:
+        return []
+    pts = [_interpolate(lat1, lon1, lat2, lon2, i / samples) for i in range(samples + 1)]
+    pts = [(lat1, lon1)] + pts + [(lat2, lon2)]
+    hits = []
+    for sg in active:
+        polys = _polygons(sg.get("coords"))
+        if any(_point_in_polygon(p[0], p[1], poly) for poly in polys for p in pts):
+            hits.append({
+                "firId": sg.get("firId"), "firName": sg.get("firName"),
+                "hazard": sg.get("hazard"), "qualifier": sg.get("qualifier"),
+                "base": sg.get("base"), "top": sg.get("top"),
+                "validTimeFrom": sg.get("validTimeFrom"),
+                "validTimeTo": sg.get("validTimeTo"),
+                "raw": sg.get("rawSigmet"),
+            })
+    return hits
+
+
 def _timed(fn, *args):
     t0 = time.perf_counter()
     result, err = fn(*args)
@@ -622,8 +802,9 @@ def build_evidence(
             "resolve_location", {"name": name, "mode": mode}, True, 0,
             summary=f"{resolved['matched_name']} via {resolved['source']}"))
         # 白名单命中时用坐标查大气，保证与海洋数据同点位
-        query = (f"{resolved['lat']},{resolved['lon']}"
-                 if resolved.get("lat") is not None else name)
+        query = (name if resolved.get("icao")
+                 else (f"{resolved['lat']},{resolved['lon']}"
+                       if resolved.get("lat") is not None else name))
         points.append({"entry": entry, "name": name, "role": role,
                        "resolved": resolved, "query": query, "required": True})
 
@@ -655,7 +836,13 @@ def build_evidence(
     # 串行约 4.2s，并发约 1s —— 而 LLM 那一步就要 27s，能省的都得省。
     jobs, meta = [], []
     for pt in points:
-        jobs.append((fetch_atmos, pt["query"], target_date))
+        icao = pt["resolved"].get("icao")
+        if icao:
+            # 航空：用官方机场气象（METAR 实况 + TAF 预报）
+            jobs.append((fetch_airport_wx, icao, target_date))
+        else:
+            # 海事：wttr.in 的地面天气（船在水面，地面气象就是正确的变量）
+            jobs.append((fetch_atmos, pt["query"], target_date))
         meta.append(("atmos", pt))
         if need_marine and pt["resolved"].get("lat") is not None:
             jobs.append((fetch_marine, pt["resolved"]["lat"], pt["resolved"]["lon"], target_date))
@@ -677,9 +864,14 @@ def build_evidence(
             if data is None:
                 entry["errors"].append(err or "")
                 if required:
-                    code = ("date_out_of_range" if (err or "").startswith("date_out_of_range")
-                            else "atmos_unavailable")
-                    bundle.missing.append(Missing(code, role, name, err or ""))
+                    e = err or ""
+                    if e.startswith("date_out_of_range"):
+                        code = "date_out_of_range"
+                    elif e.startswith("beyond_taf_horizon"):
+                        code = "beyond_taf_horizon"
+                    else:
+                        code = "atmos_unavailable"
+                    bundle.missing.append(Missing(code, role, name, e))
                 continue
             entry["atmos"] = data
             if data["quality"] == "partial":
@@ -703,6 +895,21 @@ def build_evidence(
                     bundle.missing.append(Missing("wave_height_missing", role, name, err or ""))
                 continue
             entry["marine"] = data
+
+    # SIGMET：航路危险天气的官方产品，但有效期只有 4-6 小时，
+    # 所以只在查【当天】时有意义。查明天/后天时不做，并在文档里说明原因。
+    if transport == "plane" and target_date == datetime.date.today().isoformat():
+        coords = [p["resolved"] for p in points
+                  if p["resolved"].get("lat") is not None and p["required"]]
+        if len(coords) >= 2:
+            t0 = time.perf_counter()
+            hits = sigmets_on_route(coords[0]["lat"], coords[0]["lon"],
+                                    coords[1]["lat"], coords[1]["lon"])
+            bundle.sigmets = hits
+            bundle.trace.append(TraceStep(
+                "check_route_sigmets", {"date": target_date}, True,
+                int((time.perf_counter() - t0) * 1000),
+                summary=f"航路穿越 {len(hits)} 条生效中的重要气象情报"))
 
     # 航路采样点必须拿到【海洋】数据才算数 —— 取不到就说明它落在陆地上，
     # 不在真实航路上，不能拿它的地面天气去当航路气象。
