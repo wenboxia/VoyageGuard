@@ -16,7 +16,7 @@ import sys
 
 import evidence
 
-# 航空侧抽样（wttr.in 按地名查即可，不需要在港口白名单里）
+# 航空侧抽样：必须全部在机场白名单内（全量 149 个跑网络太慢，抽 8 个）
 AIRPORT_CITIES = ["上海", "北京", "广州", "成都", "乌鲁木齐", "拉萨", "哈尔滨", "昆明"]
 
 # 内陆对照点：必须取不到浪高，否则"是不是海域"这个判别器就没有判别力
@@ -65,8 +65,8 @@ def check_inland_controls(rep: Report) -> None:
     """内陆对照点必须取不到浪高——确认海域判别器真的有判别力。"""
     print("\n【2】内陆对照点（应当取不到浪高）")
     for name in INLAND_CONTROLS:
-        resolved, miss = evidence.resolve_location(name, require_marine=True)
-        rep.check(resolved is None and miss is not None,
+        resolved, miss = evidence.resolve_location(name, "marine")
+        rep.check(resolved is None and miss is not None and miss.code == "not_coastal",
                   f"{name} 被正确判定为非海域",
                   miss.detail if miss else "意外解析成功——判别器失效")
 
@@ -107,6 +107,37 @@ def check_out_of_range(rep: Report) -> None:
               f"{beyond}（+7天）被识别为超出预报范围", (err or "")[:70])
 
 
+def check_reachability_gates(rep: Report) -> None:
+    """
+    可达性契约：两条路径都必须能拦住"前提不成立"的查询。
+
+    航空侧在加机场白名单之前是零校验的 —— 任何地名都能查到风速和能见度，
+    所以"上海 → 南极 飞机"会返回"低风险，建议出行"。这一组断言就是钉死那个漏洞。
+    """
+    print("\n【6】可达性契约")
+    today = _dates()[0]
+
+    for name in ("南极", "珠穆朗玛峰", "嵊泗", "刘公岛", "撒哈拉"):
+        resolved, miss = evidence.resolve_location(name, "aviation")
+        rep.check(resolved is None and miss is not None and miss.code == "no_airport",
+                  f"航空：{name} 不在机场清单内，被拦截",
+                  miss.detail if miss else "意外放行 —— 会对不存在的航线给出结论")
+
+    for name in ("上海", "北京", "拉萨", "乌鲁木齐"):
+        resolved, _ = evidence.resolve_location(name, "aviation")
+        rep.check(resolved is not None, f"航空：{name} 在机场清单内，正常放行")
+
+    b = evidence.build_evidence("上海", "南极", today, "plane", None)
+    rep.check(not b.ok and any(m.code == "no_airport" for m in b.missing),
+              "端到端：上海→南极（飞机）必须弃权而不是给出低风险",
+              f"missing={[m.code for m in b.missing]}")
+
+    b = evidence.build_evidence("杭州", "南京", today, "ship", "unknown")
+    rep.check(not b.ok and any(m.code == "not_coastal" for m in b.missing),
+              "端到端：杭州→南京（船）判为「不临海」而非「解析失败」",
+              f"missing={[m.code for m in b.missing]}")
+
+
 def check_sufficiency_gate(rep: Report) -> None:
     """端到端充分性判定：白名单航线 ok=True，内陆当船走 ok=False。"""
     print("\n【5】充分性判定门")
@@ -138,6 +169,7 @@ def main() -> int:
     check_atmos(rep)
     check_out_of_range(rep)
     check_sufficiency_gate(rep)
+    check_reachability_gates(rep)
 
     total = rep.passed + len(rep.failed)
     print("\n" + "=" * 72)

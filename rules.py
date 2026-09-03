@@ -249,8 +249,18 @@ MISSING_TEXT = {
                            "high risk cannot be ruled out without it)"),
     "wave_height_missing": ("未能取得有效浪高数据（海浪预警的判据）",
                             "Significant wave height unavailable (needed for sea wave warning criteria)"),
-    "location_unresolved": ("地点无法解析为可用的海域坐标",
-                            "Location could not be resolved to a usable marine coordinate"),
+    "location_unresolved": ("地名无法解析为坐标", "Place name could not be resolved to coordinates"),
+    # 这两条是【范围边界】不是【系统失败】，措辞必须让用户能分清。
+    # 前端用 escHtml 渲染，不要写 markdown 标记，会原样显示出来。
+    "not_coastal": (
+        "该地点不临海，内河与湖泊航线不在本工具覆盖范围内。"
+        "内河另有一套官方标准（长江干线禁限航规定），判据是风力分档、不含浪高，与海事判据不通用",
+        "This location is not on the coast. Inland waterway and lake routes are out of scope — "
+        "inland navigation follows a separate official standard that is wind-tiered and does not "
+        "use wave height at all"),
+    "no_airport": (
+        "该地点不在本工具收录的民航机场清单内，因此不按航空出行评估",
+        "This location is not in the tool's civil-airport list, so no aviation assessment is given"),
 }
 
 ABSTAIN_ADVICE_ZH = (

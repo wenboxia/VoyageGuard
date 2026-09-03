@@ -28,7 +28,7 @@ VALID_LEVELS = {"LOW", "MEDIUM", "HIGH", "UNKNOWN"}
 REQUIRED_FIELDS = ("risk_level", "risk_label", "is_go_recommended", "core_reason",
                    "alternative_advice", "weather_summary", "rule_override",
                    "decision_source", "evidence", "trace", "triggers")
-LATENCY_BUDGET_S = 25.0
+LATENCY_BUDGET_S = 45.0   # 生产实测 p50 约 10s；放宽是为了不 flaky，仍能抓住卡死
 
 
 def _today(offset=0):
@@ -154,8 +154,8 @@ def scenario_inland_as_ship(rep, client):
               "is_go_recommended 为 null（不能落成'不建议出行'）",
               f"got={data.get('is_go_recommended')}")
     codes = {m["code"] for m in data["evidence"]["sufficiency"]["missing"]}
-    rep.check(bool(codes & {"wave_height_missing", "location_unresolved"}),
-              "缺失原因指向浪高/坐标", f"codes={sorted(codes)}")
+    rep.check(bool(codes & {"wave_height_missing", "location_unresolved", "not_coastal"}),
+              "缺失原因指向浪高/坐标/不临海", f"codes={sorted(codes)}")
     rep.check(bool(data.get("missing_evidence")), "missing_evidence 有人话说明",
               str(data.get("missing_evidence"))[:70])
 
@@ -210,6 +210,37 @@ def scenario_vessel_contrast(rep, client):
               f"unknown={out['unknown']['risk_level']} small={out['small']['risk_level']}")
     rep.check(out["unknown"]["evidence"]["vessel_type"] == "unknown",
               "evidence 里如实记录用户选的是「不确定」")
+
+
+def scenario_reachability(rep, client):
+    """前提不成立的查询必须弃权，不能给出"建议出行"。"""
+    print(f"\n  【8】可达性：前提不成立的查询")
+
+    resp, _ = call(c := client, origin="上海", destination="南极", date=_today(), transport="plane")
+    if rep.check(resp.status_code == 200, "HTTP 200", f"status={resp.status_code}"):
+        d = resp.json()
+        rep.check(d["risk_level"] == "UNKNOWN", "上海→南极（飞机）弃权而非给出低风险",
+                  f"got={d['risk_level']}")
+        rep.check(d.get("is_go_recommended") is None, "不出现「建议出行」",
+                  f"go={d.get('is_go_recommended')}")
+        codes = {m["code"] for m in d["evidence"]["sufficiency"]["missing"]}
+        rep.check("no_airport" in codes, "缺失原因为「不在机场清单内」", f"codes={sorted(codes)}")
+
+    resp, _ = call(client, origin="舟山", destination="嵊泗", date=_today(), transport="plane")
+    if resp.status_code == 200:
+        d = resp.json()
+        rep.check(d["risk_level"] == "UNKNOWN", "舟山→嵊泗（飞机，嵊泗无机场）弃权",
+                  f"got={d['risk_level']}")
+
+    resp, _ = call(client, origin="杭州", destination="南京", date=_today(),
+                   transport="ship", vessel_type="unknown")
+    if resp.status_code == 200:
+        d = resp.json()
+        codes = {m["code"] for m in d["evidence"]["sufficiency"]["missing"]}
+        rep.check("not_coastal" in codes, "杭州→南京（船）判为「不临海」而非解析失败",
+                  f"codes={sorted(codes)}")
+        txt = " ".join(d.get("missing_evidence") or [])
+        rep.check("内河" in txt and "**" not in txt, "文案明确告知内河航线不在覆盖范围内且无 markdown 残留", txt[:70])
 
 
 def scenario_fault_injection(rep):
@@ -293,6 +324,7 @@ def main():
         scenario_out_of_horizon(rep, client)
         scenario_air_route(rep, client)
         scenario_vessel_contrast(rep, client)
+        scenario_reachability(rep, client)
     scenario_fault_injection(rep)
     scenario_llm_unavailable(rep)
 

@@ -121,6 +121,80 @@ PORT_ALIASES: dict[str, str] = {
 }
 
 
+# ---------------------------------------------------------------------------
+# 民航机场白名单 —— 航空侧的可达性契约
+# ---------------------------------------------------------------------------
+# 为什么需要：航空判据只要风速和能见度，而【任何地名都能查到风速和能见度】。
+# 所以在加这个清单之前，"上海 → 南极 飞机" 会返回"低风险，建议出行"，
+# "北京 → 珠穆朗玛峰" 也能正常出结论。船舶侧因为需要浪高，顺带获得了一个
+# "这里是不是海"的校验；航空侧没有等价的天然校验，只能靠白名单。
+#
+# 这里只存名字不存坐标：120 个机场的精确坐标我无法逐一核实，而城市名查 wttr.in
+# 本来就能用。代价是拿到的是城市气象而非机场跑道气象（机场通常离市区 20-40km）,
+# 这个简化写在 README 的已知取舍里。
+#
+# 清单不完整是刻意的：漏收一个支线机场会导致弃权（安全方向），
+# 而错误地放行一个不存在的航点会导致"建议出行"（危险方向）。
+AIRPORTS: set[str] = {
+    # 直辖市与主要枢纽
+    "北京", "上海", "天津", "重庆", "广州", "深圳", "成都", "杭州", "西安", "昆明",
+    "南京", "郑州", "武汉", "长沙", "青岛", "厦门", "大连", "沈阳", "哈尔滨", "济南",
+    # 省会 / 首府
+    "石家庄", "太原", "呼和浩特", "长春", "合肥", "福州", "南昌", "南宁", "海口",
+    "贵阳", "拉萨", "兰州", "西宁", "银川", "乌鲁木齐",
+    # 华北 / 东北
+    "唐山", "秦皇岛", "邯郸", "张家口", "大同", "运城", "包头", "鄂尔多斯", "赤峰",
+    "呼伦贝尔", "鞍山", "丹东", "锦州", "延吉", "齐齐哈尔", "牡丹江", "佳木斯", "大庆",
+    # 华东
+    "徐州", "连云港", "常州", "南通", "盐城", "扬州", "无锡", "温州", "台州", "舟山",
+    "义乌", "黄山", "阜阳", "烟台", "威海", "济宁", "临沂", "潍坊", "日照", "泉州",
+    "武夷山", "赣州", "景德镇", "九江", "宁波",
+    # 华中
+    "洛阳", "南阳", "宜昌", "襄阳", "恩施", "张家界", "常德", "怀化",
+    # 华南
+    "珠海", "汕头", "湛江", "梅州", "揭阳", "桂林", "柳州", "北海", "三亚", "金门",
+    # 西南
+    "绵阳", "宜宾", "泸州", "南充", "西昌", "九寨沟", "丽江", "大理", "西双版纳",
+    "芒市", "腾冲", "遵义", "兴义", "林芝", "日喀则",
+    # 西北
+    "榆林", "汉中", "敦煌", "嘉峪关", "格尔木", "中卫", "喀什", "库尔勒", "伊宁",
+    "阿勒泰", "和田", "克拉玛依",
+    # 港澳台
+    "香港", "澳门", "台北", "高雄", "台中",
+    # 主要国际枢纽
+    "东京", "大阪", "首尔", "新加坡", "曼谷", "吉隆坡", "悉尼", "墨尔本",
+    "伦敦", "巴黎", "法兰克福", "阿姆斯特丹", "莫斯科", "迪拜", "多哈",
+    "纽约", "洛杉矶", "旧金山", "西雅图", "温哥华", "多伦多",
+}
+
+AIRPORT_ALIASES: dict[str, str] = {
+    "beijing": "北京", "shanghai": "上海", "guangzhou": "广州", "shenzhen": "深圳",
+    "chengdu": "成都", "hangzhou": "杭州", "xian": "西安", "kunming": "昆明",
+    "nanjing": "南京", "wuhan": "武汉", "qingdao": "青岛", "xiamen": "厦门",
+    "dalian": "大连", "shenyang": "沈阳", "harbin": "哈尔滨", "chongqing": "重庆",
+    "tianjin": "天津", "lhasa": "拉萨", "urumqi": "乌鲁木齐", "sanya": "三亚",
+    "haikou": "海口", "hongkong": "香港", "hong kong": "香港", "macau": "澳门",
+    "tokyo": "东京", "osaka": "大阪", "seoul": "首尔", "singapore": "新加坡",
+    "bangkok": "曼谷", "london": "伦敦", "paris": "巴黎", "dubai": "迪拜",
+    "new york": "纽约", "los angeles": "洛杉矶", "san francisco": "旧金山",
+}
+
+
+def _lookup_airport(name: str) -> str | None:
+    """机场白名单查找。返回规范名，未命中返回 None。"""
+    raw = (name or "").strip()
+    if raw in AIRPORTS:
+        return raw
+    norm = _normalize(raw)
+    for alias, canonical in AIRPORT_ALIASES.items():
+        if _normalize(alias) == norm:
+            return canonical
+    for canonical in AIRPORTS:
+        if _normalize(canonical) == norm:
+            return canonical
+    return None
+
+
 def _normalize(name: str) -> str:
     return (name or "").strip().lower().replace(" ", "").replace("市", "").replace("港", "")
 
@@ -244,18 +318,26 @@ def _geocode(name: str) -> tuple[float, float, str] | None:
     return float(best["latitude"]), float(best["longitude"]), best.get("name", name)
 
 
-def resolve_location(name: str, require_marine: bool) -> tuple[dict | None, Missing | None]:
+def resolve_location(name: str, mode: str) -> tuple[dict | None, Missing | None]:
     """
-    require_marine=True 时必须解析出一个真实海域坐标，否则返回 Missing。
-    require_marine=False（航空）时解析不出也没关系——wttr.in 可以直接按地名查。
+    mode="marine"   ：必须解析出一个真实海域坐标（港口白名单 → Geocoding + 海洋 API 回验）
+    mode="aviation" ：必须命中民航机场白名单
+
+    两条路径都要有可达性契约。加机场白名单之前航空侧是零校验的——
+    任何地名都能查到风速和能见度，所以"上海 → 南极 飞机"会返回"低风险，建议出行"。
     """
+    if mode == "aviation":
+        hit = _lookup_airport(name)
+        if hit:
+            return {"lat": None, "lon": None, "source": "airport_whitelist",
+                    "matched_name": hit}, None
+        return None, Missing("no_airport", "", name,
+                             "该地点不在已收录的民航机场清单内")
+
     hit = _lookup_port(name)
     if hit:
         canonical, lat, lon = hit
         return {"lat": lat, "lon": lon, "source": "whitelist", "matched_name": canonical}, None
-
-    if not require_marine:
-        return {"lat": None, "lon": None, "source": "name", "matched_name": name}, None
 
     geo = _geocode(name)
     if not geo:
@@ -266,10 +348,9 @@ def resolve_location(name: str, require_marine: bool) -> tuple[dict | None, Miss
     # 兜底可以不准，但不能静默地不准。
     probe, _ = fetch_marine(lat, lon, datetime.date.today().isoformat())
     if probe is None:
-        return None, Missing(
-            "location_unresolved", "", name,
-            f"兜底解析到 ({lat:.2f}, {lon:.2f})，但该点取不到浪高数据，判定为非海域",
-        )
+        # 能解析出坐标但不是海域 —— 这是【范围边界】不是【系统失败】，措辞要分清楚
+        return None, Missing("not_coastal", "", name,
+                             f"该地点（{lat:.2f}, {lon:.2f}）不临海")
     return {"lat": lat, "lon": lon, "source": "geocoding", "matched_name": matched}, None
 
 
@@ -462,23 +543,25 @@ def build_evidence(
     bundle = EvidenceBundle(target_date=target_date, transport=transport, vessel_type=vessel_type)
     need_marine = transport == "ship"
 
+    mode = "marine" if need_marine else "aviation"
+
     for role, name in (("origin", origin), ("destination", destination)):
         entry: dict = {"name": name, "role": role, "errors": []}
         bundle.locations[name] = entry
 
-        resolved, miss = resolve_location(name, require_marine=need_marine)
+        resolved, miss = resolve_location(name, mode)
         if miss is not None:
             miss.role = role
             bundle.missing.append(miss)
             entry["errors"].append(miss.detail)
             bundle.trace.append(TraceStep(
-                "resolve_location", {"name": name, "require_marine": need_marine},
+                "resolve_location", {"name": name, "mode": mode},
                 False, 0, error=miss.detail))
             continue
 
         entry["resolved"] = resolved
         bundle.trace.append(TraceStep(
-            "resolve_location", {"name": name, "require_marine": need_marine}, True, 0,
+            "resolve_location", {"name": name, "mode": mode}, True, 0,
             summary=f"{resolved['matched_name']} via {resolved['source']}"))
 
         # 大气：白名单命中时用坐标查，保证与海洋数据同点位
