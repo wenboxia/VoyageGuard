@@ -73,9 +73,16 @@ def has_key(provider_key: str) -> bool:
     return bool(k) and k not in ("None", "your_api_key_here")
 
 
+# Vercel 函数硬上限 60s。deepseek-v4-pro 实测单次约 27s，慢的时候能到 45s+，
+# 再加上证据预取就会顶到上限，用户直接吃 504。给模型调用设超时，超了就降级到
+# rule_only —— 那条路径本来就存在且验证过（L2 场景 6），比 504 好得多。
+LLM_TIMEOUT_S = float(os.getenv("VOYAGEGUARD_LLM_TIMEOUT", "32"))
+
+
 def make_client(provider_key: str) -> OpenAI:
     p = PROVIDERS[provider_key]
-    return OpenAI(api_key=api_key(provider_key) or "missing", base_url=p.base_url)
+    return OpenAI(api_key=api_key(provider_key) or "missing", base_url=p.base_url,
+                  timeout=LLM_TIMEOUT_S, max_retries=0)
 
 
 def active_provider() -> str:

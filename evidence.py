@@ -19,6 +19,7 @@ evidence.py — 确定性证据管线
   - Open-Meteo Geocoding API   白名单未命中时的兜底坐标解析（必须经海洋 API 回验）
 """
 
+import concurrent.futures as cf
 import datetime
 import json
 import os
@@ -532,6 +533,19 @@ def _timed(fn, *args):
     return result, err, int((time.perf_counter() - t0) * 1000)
 
 
+def _timed_parallel(jobs: list[tuple]) -> list[tuple]:
+    """
+    并发执行若干 (fn, *args)，返回 [(result, err, ms), ...]，顺序与输入一致。
+
+    一条船舶航线要取 3 个点 × (大气 + 海洋) = 6 次网络调用，彼此完全独立。
+    串行约 4.2s，并发后约 1s。
+    """
+    if not jobs:
+        return []
+    with cf.ThreadPoolExecutor(max_workers=min(6, len(jobs))) as ex:
+        return list(ex.map(lambda j: _timed(j[0], *j[1:]), jobs))
+
+
 def build_evidence(
     origin: str,
     destination: str,
@@ -539,12 +553,13 @@ def build_evidence(
     transport: str,
     vessel_type: str | None = None,
 ) -> EvidenceBundle:
-    """确定性预取两端的必需证据，并判定充分性。不调用 LLM。"""
+    """确定性预取两端（船舶再加航线中点）的必需证据，并判定充分性。不调用 LLM。"""
     bundle = EvidenceBundle(target_date=target_date, transport=transport, vessel_type=vessel_type)
     need_marine = transport == "ship"
-
     mode = "marine" if need_marine else "aviation"
 
+    # ── 阶段一：解析坐标（白名单命中时零网络；兜底才走 Geocoding）────────
+    points: list[dict] = []          # 待取数的点
     for role, name in (("origin", origin), ("destination", destination)):
         entry: dict = {"name": name, "role": role, "errors": []}
         bundle.locations[name] = entry
@@ -555,107 +570,94 @@ def build_evidence(
             bundle.missing.append(miss)
             entry["errors"].append(miss.detail)
             bundle.trace.append(TraceStep(
-                "resolve_location", {"name": name, "mode": mode},
-                False, 0, error=miss.detail))
+                "resolve_location", {"name": name, "mode": mode}, False, 0, error=miss.detail))
             continue
 
         entry["resolved"] = resolved
         bundle.trace.append(TraceStep(
             "resolve_location", {"name": name, "mode": mode}, True, 0,
             summary=f"{resolved['matched_name']} via {resolved['source']}"))
-
-        # 大气：白名单命中时用坐标查，保证与海洋数据同点位
+        # 白名单命中时用坐标查大气，保证与海洋数据同点位
         query = (f"{resolved['lat']},{resolved['lon']}"
                  if resolved.get("lat") is not None else name)
-        atmos, err, ms = _timed(fetch_atmos, query, target_date)
-        bundle.trace.append(TraceStep(
-            "get_weather_forecast", {"location": query, "date": target_date},
-            atmos is not None, ms,
-            summary=(f"wind {atmos['max_wind_speed_ms']} m/s, vis {atmos['min_visibility_km']} km"
-                     if atmos else ""),
-            error=err))
+        points.append({"entry": entry, "name": name, "role": role,
+                       "resolved": resolved, "query": query, "required": True})
 
-        if atmos is None:
-            entry["errors"].append(err or "")
-            code = "date_out_of_range" if (err or "").startswith("date_out_of_range") else "atmos_unavailable"
-            bundle.missing.append(Missing(code, role, name, err or ""))
-        else:
-            entry["atmos"] = atmos
-            if atmos["quality"] == "partial":
-                bundle.quality = "partial"
-            if atmos["max_wind_speed_ms"] is None:
-                bundle.missing.append(Missing("wind_missing", role, name, "未取到风速"))
-            # 能见度是航空硬红线，缺了就不能排除 HIGH —— 不能默认为安全
-            if transport == "plane" and atmos["min_visibility_km"] is None:
-                bundle.missing.append(Missing("visibility_missing", role, name, "未取到能见度"))
-
-        if need_marine and resolved.get("lat") is not None:
-            marine, err, ms = _timed(fetch_marine, resolved["lat"], resolved["lon"], target_date)
-            bundle.trace.append(TraceStep(
-                "get_marine_forecast",
-                {"lat": resolved["lat"], "lon": resolved["lon"], "date": target_date},
-                marine is not None, ms,
-                summary=(f"wave max {marine['max_wave_height_m']} m" if marine else ""),
-                error=err))
-            if marine is None:
-                entry["errors"].append(err or "")
-                bundle.missing.append(Missing("wave_height_missing", role, name, err or ""))
-            else:
-                entry["marine"] = marine
-
+    # 航线中点：跨海航线的风险由开阔水域中段决定，两端港口是遮蔽水域会低估。
+    # 实测 2026-02-05 渤海海峡停航当天，烟台港 8.0 m/s 而海峡中部 15.2 m/s。
+    # best-effort —— 取不到不触发 abstention。
     if need_marine:
-        _sample_route_midpoint(bundle, target_date)
+        coords = [p["resolved"] for p in points if p["resolved"].get("lat") is not None]
+        if len(coords) >= 2:
+            lat = round(sum(c["lat"] for c in coords[:2]) / 2, 4)
+            lon = round(sum(c["lon"] for c in coords[:2]) / 2, 4)
+            mid: dict = {"name": MIDPOINT_KEY, "role": "midpoint", "errors": [],
+                         "resolved": {"lat": lat, "lon": lon, "source": "derived",
+                                      "matched_name": MIDPOINT_KEY}}
+            points.append({"entry": mid, "name": MIDPOINT_KEY, "role": "midpoint",
+                           "resolved": mid["resolved"], "query": f"{lat},{lon}",
+                           "required": False})
+
+    # ── 阶段二：并发取数 ──────────────────────────────────────────────────
+    # 一条船舶航线是 3 个点 × (大气 + 海洋) = 6 次独立的网络调用。
+    # 串行约 4.2s，并发约 1s —— 而 LLM 那一步就要 27s，能省的都得省。
+    jobs, meta = [], []
+    for pt in points:
+        jobs.append((fetch_atmos, pt["query"], target_date))
+        meta.append(("atmos", pt))
+        if need_marine and pt["resolved"].get("lat") is not None:
+            jobs.append((fetch_marine, pt["resolved"]["lat"], pt["resolved"]["lon"], target_date))
+            meta.append(("marine", pt))
+    results = _timed_parallel(jobs)
+
+    # ── 阶段三：组装、记 trace、判定充分性 ────────────────────────────────
+    for (kind, pt), (data, err, ms) in zip(meta, results):
+        entry, name, role, required = pt["entry"], pt["name"], pt["role"], pt["required"]
+
+        if kind == "atmos":
+            args = {"location": pt["query"], "date": target_date}
+            if role == "midpoint":
+                args["role"] = "midpoint"
+            bundle.trace.append(TraceStep(
+                "get_weather_forecast", args, data is not None, ms,
+                summary=(f"wind {data['max_wind_speed_ms']} m/s, "
+                         f"gust {data['max_gust_ms']} m/s" if data else ""), error=err))
+            if data is None:
+                entry["errors"].append(err or "")
+                if required:
+                    code = ("date_out_of_range" if (err or "").startswith("date_out_of_range")
+                            else "atmos_unavailable")
+                    bundle.missing.append(Missing(code, role, name, err or ""))
+                continue
+            entry["atmos"] = data
+            if data["quality"] == "partial":
+                bundle.quality = "partial"
+            if required:
+                if data["max_wind_speed_ms"] is None:
+                    bundle.missing.append(Missing("wind_missing", role, name, "未取到风速"))
+                # 能见度是低能见度起飞门槛的判据，缺了就不能排除高风险 —— 不能默认为安全
+                if transport == "plane" and data["min_visibility_km"] is None:
+                    bundle.missing.append(Missing("visibility_missing", role, name, "未取到能见度"))
+        else:
+            args = {"lat": pt["resolved"]["lat"], "lon": pt["resolved"]["lon"], "date": target_date}
+            if role == "midpoint":
+                args["role"] = "midpoint"
+            bundle.trace.append(TraceStep(
+                "get_marine_forecast", args, data is not None, ms,
+                summary=(f"wave max {data['max_wave_height_m']} m" if data else ""), error=err))
+            if data is None:
+                entry["errors"].append(err or "")
+                if required:
+                    bundle.missing.append(Missing("wave_height_missing", role, name, err or ""))
+                continue
+            entry["marine"] = data
+
+    # 中点只在真的取到东西时才进 locations（否则不该出现在证据里）
+    for pt in points:
+        if pt["role"] == "midpoint" and (pt["entry"].get("atmos") or pt["entry"].get("marine")):
+            bundle.locations[MIDPOINT_KEY] = pt["entry"]
 
     return bundle
 
 
 MIDPOINT_KEY = "航线中点"
-
-
-def _sample_route_midpoint(bundle: EvidenceBundle, target_date: str) -> None:
-    """
-    加采一个航线中点。
-
-    为什么需要：跨海航线的风险由开阔水域的中段决定，两端港口是遮蔽水域，会低估。
-    实测 2026-02-05 渤海海峡全线停航当天——烟台港平均风只有 8.0 m/s（大风蓝色），
-    而海峡中部是 15.2 m/s（7 级，已越过客运禁航线）、阵风 21.3 m/s（大风黄色）。
-    只采港口会把这次停航判成中风险。
-
-    best-effort：中点取不到不触发 abstention（两端的必需证据已经齐了），
-    只在 trace 里如实记录。
-    """
-    coords = [e["resolved"] for e in bundle.locations.values()
-              if e.get("resolved", {}).get("lat") is not None]
-    if len(coords) < 2:
-        return
-    lat = sum(c["lat"] for c in coords[:2]) / 2
-    lon = sum(c["lon"] for c in coords[:2]) / 2
-
-    entry: dict = {"name": MIDPOINT_KEY, "role": "midpoint", "errors": [],
-                   "resolved": {"lat": round(lat, 4), "lon": round(lon, 4),
-                                "source": "derived", "matched_name": MIDPOINT_KEY}}
-
-    atmos, err, ms = _timed(fetch_atmos, f"{lat},{lon}", target_date)
-    bundle.trace.append(TraceStep(
-        "get_weather_forecast", {"location": f"{lat:.4f},{lon:.4f}", "date": target_date,
-                                 "role": "midpoint"},
-        atmos is not None, ms,
-        summary=(f"wind {atmos['max_wind_speed_ms']} m/s" if atmos else ""), error=err))
-    if atmos is not None:
-        entry["atmos"] = atmos
-    else:
-        entry["errors"].append(err or "")
-
-    marine, err, ms = _timed(fetch_marine, lat, lon, target_date)
-    bundle.trace.append(TraceStep(
-        "get_marine_forecast", {"lat": round(lat, 4), "lon": round(lon, 4),
-                                "date": target_date, "role": "midpoint"},
-        marine is not None, ms,
-        summary=(f"wave max {marine['max_wave_height_m']} m" if marine else ""), error=err))
-    if marine is not None:
-        entry["marine"] = marine
-    else:
-        entry["errors"].append(err or "")
-
-    if entry.get("atmos") or entry.get("marine"):
-        bundle.locations[MIDPOINT_KEY] = entry

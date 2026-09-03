@@ -253,11 +253,12 @@ MISSING_TEXT = {
     # 这两条是【范围边界】不是【系统失败】，措辞必须让用户能分清。
     # 前端用 escHtml 渲染，不要写 markdown 标记，会原样显示出来。
     "not_coastal": (
-        "该地点不临海，内河与湖泊航线不在本工具覆盖范围内。"
-        "内河另有一套官方标准（长江干线禁限航规定），判据是风力分档、不含浪高，与海事判据不通用",
-        "This location is not on the coast. Inland waterway and lake routes are out of scope — "
-        "inland navigation follows a separate official standard that is wind-tiered and does not "
-        "use wave height at all"),
+        "该地点不临海，无法按海事出行评估"
+        "（内河与湖泊航线同样不在覆盖范围内——内河另有一套官方标准，"
+        "判据是风力分档、不含浪高，与海事判据不通用）",
+        "This location is not on the coast, so no maritime assessment is given "
+        "(inland waterway and lake routes are likewise out of scope — inland navigation follows a "
+        "separate official standard that is wind-tiered and does not use wave height at all)"),
     "no_airport": (
         "该地点不在本工具收录的民航机场清单内，因此不按航空出行评估",
         "This location is not in the tool's civil-airport list, so no aviation assessment is given"),

@@ -28,7 +28,9 @@ VALID_LEVELS = {"LOW", "MEDIUM", "HIGH", "UNKNOWN"}
 REQUIRED_FIELDS = ("risk_level", "risk_label", "is_go_recommended", "core_reason",
                    "alternative_advice", "weather_summary", "rule_override",
                    "decision_source", "evidence", "trace", "triggers")
-LATENCY_BUDGET_S = 45.0   # 生产实测 p50 约 10s；放宽是为了不 flaky，仍能抓住卡死
+# Vercel 函数硬上限 60s。模型调用有 32s 超时并降级到 rule_only，
+# 所以端到端最坏 ≈ 预取(~2s) + 超时(32s) + 余量。50s 仍能抓住"顶穿上限"的回归。
+LATENCY_BUDGET_S = 50.0
 
 
 def _today(offset=0):
@@ -212,6 +214,38 @@ def scenario_vessel_contrast(rep, client):
               "evidence 里如实记录用户选的是「不确定」")
 
 
+def scenario_llm_timeout(rep):
+    """模型太慢时必须降级到规则引擎，而不是让请求顶穿 Vercel 的 60s 上限吃 504。"""
+    print(f"\n  【9】故障注入：LLM 超时")
+    saved = os.environ.get("VOYAGEGUARD_LLM_TIMEOUT")
+    os.environ["VOYAGEGUARD_LLM_TIMEOUT"] = "2"
+    try:
+        import providers, agent as agent_mod
+        importlib.reload(providers); importlib.reload(agent_mod)
+        import app as app_module
+        importlib.reload(app_module)
+        with TestClient(app_module.app) as c:
+            resp, dt = call(c, origin="上海", destination="舟山", date=_today(),
+                            transport="ship", vessel_type="small")
+        rep.check(resp.status_code == 200, "模型超时不返回 5xx", f"status={resp.status_code}")
+        if resp.status_code == 200:
+            d = resp.json()
+            rep.check(d.get("decision_source") == "rule_only",
+                      "超时后规则引擎接管", f"src={d.get('decision_source')}")
+            rep.check(d["risk_level"] in VALID_LEVELS, "仍给出合法风险等级",
+                      f"got={d['risk_level']}")
+            rep.check(any(not s.get("ok") for s in d.get("trace", [])),
+                      "超时如实进 trace，没有被吞掉")
+            rep.check(dt < 15, "超时后快速返回而不是继续等", f"{dt:.1f}s")
+    finally:
+        if saved is None:
+            os.environ.pop("VOYAGEGUARD_LLM_TIMEOUT", None)
+        else:
+            os.environ["VOYAGEGUARD_LLM_TIMEOUT"] = saved
+        import providers, agent as agent_mod
+        importlib.reload(providers); importlib.reload(agent_mod)
+
+
 def scenario_reachability(rep, client):
     """前提不成立的查询必须弃权，不能给出"建议出行"。"""
     print(f"\n  【8】可达性：前提不成立的查询")
@@ -327,6 +361,7 @@ def main():
         scenario_reachability(rep, client)
     scenario_fault_injection(rep)
     scenario_llm_unavailable(rep)
+    scenario_llm_timeout(rep)
 
     total = rep.passed + len(rep.failed)
     print("\n" + "=" * 88)
