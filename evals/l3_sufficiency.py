@@ -138,6 +138,37 @@ def check_reachability_gates(rep: Report) -> None:
               f"missing={[m.code for m in b.missing]}")
 
 
+def check_route_sampling(rep: Report) -> None:
+    """
+    航路采样：点数随距离增长，且采样点必须真的落在海上。
+
+    几何限制（实测）：中国海岸线是弯的，远距离两港之间的大圆直线会切进内陆——
+    538 km 以内采样点全在海上，845 km 以上全部落到陆地。所以采样点要自过滤，
+    并把覆盖情况如实透出，而不是拿陆地上的地面天气冒充航路气象。
+    """
+    print("\n【7】航路采样")
+    today = _dates()[0]
+
+    for a, b, min_pts in (("厦门", "金门", 1), ("烟台", "大连", 1), ("青岛", "上海", 2)):
+        bd = evidence.build_evidence(a, b, today, "ship", "small")
+        r = bd.route
+        rep.check(r.get("sampled", 0) >= min_pts,
+                  f"{a}→{b} 采样点数随距离增长", f"{r.get('distance_km')} km → {r.get('sampled')} 点")
+        rep.check(r.get("on_water") == r.get("sampled"),
+                  f"{a}→{b} 采样点全部落在海上",
+                  f"on_water={r.get('on_water')}/{r.get('sampled')}")
+        rep.check(any(e.get("role") == "midpoint" for e in bd.locations.values()),
+                  f"{a}→{b} 航路采样点进入证据")
+
+    bd = evidence.build_evidence("上海", "厦门", today, "ship", "small")
+    r = bd.route
+    rep.check(r.get("on_water") == 0 and "note" in r,
+              "长航线大圆穿越陆地时，如实标注未覆盖航程中段（不假装采到了）",
+              (r.get("note") or "")[:56])
+    rep.check(bd.quality == "partial", "该情况下证据质量降级为 partial", f"quality={bd.quality}")
+    rep.check(bd.ok, "但两端证据仍充分，不因此弃权", f"missing={[m.code for m in bd.missing]}")
+
+
 def check_sufficiency_gate(rep: Report) -> None:
     """端到端充分性判定：白名单航线 ok=True，内陆当船走 ok=False。"""
     print("\n【5】充分性判定门")
@@ -170,6 +201,7 @@ def main() -> int:
     check_out_of_range(rep)
     check_sufficiency_gate(rep)
     check_reachability_gates(rep)
+    check_route_sampling(rep)
 
     total = rep.passed + len(rep.failed)
     print("\n" + "=" * 72)

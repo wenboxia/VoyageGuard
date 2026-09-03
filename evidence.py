@@ -22,6 +22,7 @@ evidence.py — 确定性证据管线
 import concurrent.futures as cf
 import datetime
 import json
+import math
 import os
 import time
 import urllib.parse
@@ -257,6 +258,7 @@ class EvidenceBundle:
     missing: list[Missing] = field(default_factory=list)
     trace: list[TraceStep] = field(default_factory=list)
     quality: str = "full"          # full | partial
+    route: dict = field(default_factory=dict)   # 航路采样覆盖情况，如实透出
 
     @property
     def ok(self) -> bool:
@@ -268,6 +270,7 @@ class EvidenceBundle:
             "transport": self.transport,
             "vessel_type": self.vessel_type,
             "locations": self.locations,
+            "route": self.route,
             "sufficiency": {
                 "ok": self.ok,
                 "quality": self.quality,
@@ -527,6 +530,47 @@ def fetch_marine(lat: float, lon: float, target_date: str) -> tuple[dict | None,
 # ---------------------------------------------------------------------------
 # 组装
 # ---------------------------------------------------------------------------
+ROUTE_SAMPLE_SPACING_KM = float(os.getenv("VOYAGEGUARD_ROUTE_SPACING_KM", "200"))
+ROUTE_MAX_SAMPLES = int(os.getenv("VOYAGEGUARD_ROUTE_MAX_SAMPLES", "5"))
+
+
+def great_circle_km(lat1: float, lon1: float, lat2: float, lon2: float) -> float:
+    r = 6371.0
+    p1, p2 = math.radians(lat1), math.radians(lat2)
+    dp, dl = math.radians(lat2 - lat1), math.radians(lon2 - lon1)
+    a = math.sin(dp / 2) ** 2 + math.cos(p1) * math.cos(p2) * math.sin(dl / 2) ** 2
+    return 2 * r * math.asin(math.sqrt(a))
+
+
+def _interpolate(lat1, lon1, lat2, lon2, frac: float) -> tuple[float, float]:
+    """大圆插值（slerp）。短航线用线性也够，但长航线线性会明显偏离实际航路。"""
+    p1, l1 = math.radians(lat1), math.radians(lon1)
+    p2, l2 = math.radians(lat2), math.radians(lon2)
+    d = 2 * math.asin(math.sqrt(
+        math.sin((p2 - p1) / 2) ** 2 + math.cos(p1) * math.cos(p2) * math.sin((l2 - l1) / 2) ** 2))
+    if d == 0:
+        return lat1, lon1
+    a, b = math.sin((1 - frac) * d) / math.sin(d), math.sin(frac * d) / math.sin(d)
+    x = a * math.cos(p1) * math.cos(l1) + b * math.cos(p2) * math.cos(l2)
+    y = a * math.cos(p1) * math.sin(l1) + b * math.cos(p2) * math.sin(l2)
+    z = a * math.sin(p1) + b * math.sin(p2)
+    return round(math.degrees(math.atan2(z, math.sqrt(x * x + y * y))), 4), \
+           round(math.degrees(math.atan2(y, x)), 4)
+
+
+def route_sample_points(lat1, lon1, lat2, lon2) -> list[tuple[float, float]]:
+    """
+    沿航线取若干中间采样点。
+
+    为什么不是固定一个中点：跨海航线的风险由开阔水域中段决定，而白名单里的港口
+    能组合出很长的航线（上海→三亚 1905 km）。一个中点代表两千公里是严重欠采样。
+    真实的短程横渡（厦门-金门 23 km、渤海海峡 154 km）仍然只取 1 个点，行为不变。
+    """
+    dist = great_circle_km(lat1, lon1, lat2, lon2)
+    n = max(1, min(ROUTE_MAX_SAMPLES, int(dist // ROUTE_SAMPLE_SPACING_KM)))
+    return [_interpolate(lat1, lon1, lat2, lon2, (i + 1) / (n + 1)) for i in range(n)]
+
+
 def _timed(fn, *args):
     t0 = time.perf_counter()
     result, err = fn(*args)
@@ -583,20 +627,28 @@ def build_evidence(
         points.append({"entry": entry, "name": name, "role": role,
                        "resolved": resolved, "query": query, "required": True})
 
-    # 航线中点：跨海航线的风险由开阔水域中段决定，两端港口是遮蔽水域会低估。
+    # 航路采样：跨海航线的风险由开阔水域中段决定，两端港口是遮蔽水域会低估。
     # 实测 2026-02-05 渤海海峡停航当天，烟台港 8.0 m/s 而海峡中部 15.2 m/s。
-    # best-effort —— 取不到不触发 abstention。
+    #
+    # 采样点数按距离定（每 ~200 km 一个，上限 5）。但有个几何限制：中国海岸线是弯的，
+    # 远距离两港之间的【大圆直线会切进内陆】——实测 538 km 以内的采样点全在海上，
+    # 845 km 以上全部落到陆地。所以采样点要自过滤：取不到浪高的点就是不在航路上，
+    # 丢掉并把覆盖情况如实透出，而不是假装采到了。
     if need_marine:
         coords = [p["resolved"] for p in points if p["resolved"].get("lat") is not None]
         if len(coords) >= 2:
-            lat = round(sum(c["lat"] for c in coords[:2]) / 2, 4)
-            lon = round(sum(c["lon"] for c in coords[:2]) / 2, 4)
-            mid: dict = {"name": MIDPOINT_KEY, "role": "midpoint", "errors": [],
-                         "resolved": {"lat": lat, "lon": lon, "source": "derived",
-                                      "matched_name": MIDPOINT_KEY}}
-            points.append({"entry": mid, "name": MIDPOINT_KEY, "role": "midpoint",
-                           "resolved": mid["resolved"], "query": f"{lat},{lon}",
-                           "required": False})
+            a, b = coords[0], coords[1]
+            dist_km = great_circle_km(a["lat"], a["lon"], b["lat"], b["lon"])
+            samples = route_sample_points(a["lat"], a["lon"], b["lat"], b["lon"])
+            bundle.route = {"distance_km": round(dist_km, 1), "sampled": len(samples)}
+            for idx, (lat, lon) in enumerate(samples, 1):
+                key = MIDPOINT_KEY if len(samples) == 1 else f"{MIDPOINT_KEY} {idx}/{len(samples)}"
+                mid: dict = {"name": key, "role": "midpoint", "errors": [],
+                             "resolved": {"lat": lat, "lon": lon, "source": "derived",
+                                          "matched_name": key}}
+                points.append({"entry": mid, "name": key, "role": "midpoint",
+                               "resolved": mid["resolved"], "query": f"{lat},{lon}",
+                               "required": False})
 
     # ── 阶段二：并发取数 ──────────────────────────────────────────────────
     # 一条船舶航线是 3 个点 × (大气 + 海洋) = 6 次独立的网络调用。
@@ -652,10 +704,23 @@ def build_evidence(
                 continue
             entry["marine"] = data
 
-    # 中点只在真的取到东西时才进 locations（否则不该出现在证据里）
+    # 航路采样点必须拿到【海洋】数据才算数 —— 取不到就说明它落在陆地上，
+    # 不在真实航路上，不能拿它的地面天气去当航路气象。
+    on_water = 0
     for pt in points:
-        if pt["role"] == "midpoint" and (pt["entry"].get("atmos") or pt["entry"].get("marine")):
-            bundle.locations[MIDPOINT_KEY] = pt["entry"]
+        if pt["role"] != "midpoint":
+            continue
+        if pt["entry"].get("marine"):
+            bundle.locations[pt["name"]] = pt["entry"]
+            on_water += 1
+
+    if bundle.route:
+        bundle.route["on_water"] = on_water
+        if on_water == 0 and bundle.route["distance_km"] > 300:
+            bundle.route["note"] = (
+                "航线较长，两港之间的大圆路径穿越陆地，无法沿航路采样。"
+                "以下结论只基于两端港口的气象条件，未覆盖航程中段。")
+            bundle.quality = "partial"
 
     return bundle
 
