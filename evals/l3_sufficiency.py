@@ -139,11 +139,12 @@ def check_reachability_gates(rep: Report) -> None:
     rep.check(resolved is not None and resolved.get("icao") == "ZSPD",
               "航空：有官方气象的机场 → 带上 ICAO 走 METAR/TAF")
 
-    # 覆盖率本身就是产品质量：超出 TAF 范围要回落而不是弃权
+    # 覆盖率本身就是产品质量：TAF 覆盖不到时必须回落而不是弃权。
+    # 只断言"回落且标了质量"，不断言具体是哪一档 —— 那取决于 TAF 签发时刻。
     beyond = (datetime.date.today() + datetime.timedelta(days=2)).isoformat()
     a, err = evidence.fetch_aviation_wx("ZSPD", "上海", beyond)
-    rep.check(a is not None and a.get("quality") == "city_surface",
-              "航空：超出 TAF 范围时回落到城市地面天气并标明质量",
+    rep.check(a is not None and a.get("quality") in ("full", "mixed", "city_surface"),
+              "航空：TAF 覆盖不到时回落而不是弃权，且质量标记合法",
               f"quality={a.get('quality') if a else err}")
 
     b = evidence.build_evidence("上海", "南极", today, "plane", None)
@@ -231,11 +232,19 @@ def check_taf_coverage(rep: Report) -> None:
     else:
         rep.check(b is not None, "官方数据完整覆盖该日", f"quality={b.get('quality') if b else None}")
 
-    far = (datetime.date.today() + datetime.timedelta(days=2)).isoformat()
-    c, _ = evidence.fetch_aviation_wx(icao, "上海", far)
-    rep.check(c is not None and c.get("quality") == "city_surface",
-              "完全超出 TAF 范围 → 整天回落城市天气并标注，不弃权",
-              f"quality={c.get('quality') if c else None}")
+    # 【不能写死"后天一定是 city_surface"】—— TAF 有效期约 30 小时，
+    # 签发时刻决定它能盖到第几天：签发晚的 TAF 尾巴会伸进"后天"的头几个小时。
+    # 真正的不变量是【覆盖时长与质量标记必须一致】，与当前时刻无关。
+    for offset in (0, 1, 2):
+        d = (datetime.date.today() + datetime.timedelta(days=offset)).isoformat()
+        raw, _ = evidence.fetch_airport_wx(icao, d)
+        cov = (raw or {}).get("taf_cov_hours") or 0
+        got, _ = evidence.fetch_aviation_wx(icao, "上海", d)
+        expect = "full" if cov >= 23.5 else ("mixed" if cov > 0 else "city_surface")
+        rep.check(got is not None and got.get("quality") == expect,
+                  f"+{offset} 天：TAF 覆盖 {cov}h → 质量标记应为 {expect}",
+                  f"实际 {got.get('quality') if got else None}")
+        rep.check(got is not None, f"+{offset} 天：无论覆盖多少都不弃权（回落而非拒答）")
 
 
 def check_sufficiency_gate(rep: Report) -> None:

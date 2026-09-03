@@ -912,9 +912,8 @@
       vessel_large_sub:   '能把车开上船',
       vessel_unknown:     '不确定',
       vessel_unknown_sub: '按最严标准算',
-      date_src:           ['官方机场预报', '部分官方预报', '城市地面天气'],
       taf_cov_note:       (h) => `官方机场预报（TAF）覆盖至 ${h}，之后的时段用城市地面天气补齐。`,
-      date_hint_air:      '优先使用官方机场气象（METAR/TAF）；覆盖不到的机场或日期回落到城市地面天气，结果里会标明',
+      date_hint_air:      '官方机场预报（TAF）约覆盖未来 30 小时，覆盖窗口随签发时刻滚动——具体覆盖到几点会写在结果里，超出部分用城市地面天气补齐',
       date_hint_sea:      '海事覆盖今天起 3 天，按航线距离沿途多点采样',
       triggers_header:    '触发的官方判据',
       cls_REG:            '法规',
@@ -975,9 +974,8 @@
       vessel_large_sub:   'cars drive aboard',
       vessel_unknown:     'Not sure',
       vessel_unknown_sub: 'uses the strictest standard',
-      date_src:           ['Official TAF', 'Partly official', 'City surface'],
       taf_cov_note:       (h) => `Official airport forecast (TAF) covers until ${h}; the rest of the day is filled in with city surface weather.`,
-      date_hint_air:      'Official airport weather (METAR/TAF) is used where available; otherwise falls back to city surface weather, labelled in the result',
+      date_hint_air:      'Official airport forecasts (TAF) cover roughly the next 30 hours and the window rolls with each issue — the result states exactly how far it reaches; the rest is filled in with city surface weather',
       date_hint_sea:      'Sailings: today plus 2 days, sampled at several points along the route',
       triggers_header:    'Official criteria triggered',
       cls_REG:            'REGULATION',
@@ -1083,10 +1081,8 @@
       const isoDate = `${d.getFullYear()}-${mm}-${dd}`;
       const btn     = document.createElement('button');
       btn.className    = 'date-btn' + (isoDate === selectedDate ? ' active' : '');
-      const srcTag = transport === 'plane' ? t('date_src')[i] : '';
       btn.innerHTML    = `<span class="day-label">${labels[i]}</span>`
-        + `<span class="date-val">${mm}/${dd}</span>`
-        + (srcTag ? `<span class="date-src">${srcTag}</span>` : '');
+        + `<span class="date-val">${mm}/${dd}</span>`;
       btn.dataset.date = isoDate;
       btn.onclick      = () => {
         document.querySelectorAll('.date-btn').forEach(b => b.classList.remove('active'));
