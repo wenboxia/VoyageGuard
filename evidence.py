@@ -417,18 +417,51 @@ def _now_iso() -> str:
 # ---------------------------------------------------------------------------
 # 坐标解析：白名单 → Geocoding（必须经海洋 API 回验）→ 失败
 # ---------------------------------------------------------------------------
-def _geocode(name: str) -> tuple[float, float, str] | None:
-    url = f"{GEOCODE_BASE}?{urllib.parse.urlencode({'name': name, 'count': 5, 'language': 'zh'})}"
+def _name_matches(query_norm: str, result_norm: str) -> bool:
+    """候选地名跟用户输入的是不是同一个词。两个方向都认（"杭州" ↔ "杭州市"）。"""
+    if len(result_norm) < 2 or not query_norm:
+        return False
+    return result_norm.startswith(query_norm) or query_norm.startswith(result_norm)
+
+
+def _geocode_in(name: str, language: str) -> tuple[float, float, str] | None:
+    qs = urllib.parse.urlencode({"name": name, "count": 5, "language": language})
+    url = f"{GEOCODE_BASE}?{qs}"
     try:
         results = _get_json(url).get("results") or []
     except Exception:
         return None
-    if not results:
+    # 只保留【名字对得上】的候选。人口最多只用来在同名候选里挑一个，
+    # 不能用来在毫不相干的候选里挑一个。
+    q = _normalize(name)
+    cand = [r for r in results if _name_matches(q, _normalize(r.get("name", "")))]
+    if not cand:
         return None
     # 同名地点很常见（实测搜"三亚"返回海南/广西/玉林三个），取人口最多的那个，
     # 但这只是猜测——真正的保险是下面的海洋 API 回验。
-    best = max(results, key=lambda r: r.get("population", 0) or 0)
+    best = max(cand, key=lambda r: r.get("population", 0) or 0)
     return float(best["latitude"]), float(best["longitude"]), best.get("name", name)
+
+
+def _geocode(name: str) -> tuple[float, float, str] | None:
+    """
+    先用中文库查，查不到名字对得上的再用英文库查一次（罗马化输入走这条）。
+
+    为什么必须校验名字对得上：Open-Meteo Geocoding 是模糊匹配，罗马化输入会返回
+    【毫不相干】的城市——实测 "Xian" 返回 Xián(西班牙)/Xianning/咸阳/湘潭市/**珠海市**，
+    里面根本没有西安。原来的实现直接取人口最多的，于是挑中珠海市（220 万），
+    而珠海临海，海洋 API 回验顺利通过 —— "Xian 坐船" 于是拿珠海的海况给出了
+    "建议出行"，正确答案却是"西安不临海，弃权"。
+
+    这就是本项目反复出现的那个错误模式的第六种马甲：**回答一个前提不成立的问题**，
+    而且错在危险方向（该弃权时放行）。加上名字校验后 "Xian" 落到 Xianning（湖北，内陆）
+    → 回验判定非海域 → 正确弃权；"Xi'an" 落到真正的西安 → 同样弃权。
+    """
+    for language in ("zh", "en"):
+        hit = _geocode_in(name, language)
+        if hit:
+            return hit
+    return None
 
 
 MARINE_SEARCH_KM = float(os.getenv("VOYAGEGUARD_MARINE_SEARCH_KM", "50"))
@@ -824,8 +857,10 @@ def fetch_marine(lat: float, lon: float, target_date: str) -> tuple[dict | None,
     hourly = data.get("hourly", {})
     waves = [v for v in (hourly.get("wave_height") or []) if v is not None]
     if not waves:
-        # 内陆点会走到这里 —— 全 null 是 Open-Meteo 对非海域的正常行为
-        return None, "该坐标无浪高数据（非海域或超出模式覆盖范围）"
+        # 内陆点会走到这里 —— 全 null 是 Open-Meteo 对非海域的正常行为。
+        # 前缀 not_sea: 是给程序看的：航路采样点落在陆地是【设计内的过滤】不是失败，
+        # 调用方据此把它记成中性的一步，而不是画个红叉让人以为接口挂了。
+        return None, "not_sea:该坐标不在海上（非海域或超出模式覆盖范围）"
 
     periods = [v for v in (hourly.get("wave_period") or []) if v is not None]
     swells = [v for v in (hourly.get("swell_wave_height") or []) if v is not None]
@@ -1083,9 +1118,16 @@ def build_evidence(
             args = {"lat": pt["resolved"]["lat"], "lon": pt["resolved"]["lon"], "date": target_date}
             if role == "midpoint":
                 args["role"] = "midpoint"
+            # 航路采样点落在陆地 = 自过滤成功，不是失败。
+            # 端点不走这条：端点有 nearest_marine_point() 半径搜索兜底，
+            # 真取不到就是 not_coastal 弃权，那条路径必须继续报失败。
+            filtered = (role == "midpoint" and data is None
+                        and (err or "").startswith("not_sea:"))
             bundle.trace.append(TraceStep(
-                "get_marine_forecast", args, data is not None, ms,
-                summary=(f"wave max {data['max_wave_height_m']} m" if data else ""), error=err))
+                "get_marine_forecast", args, data is not None or filtered, ms,
+                summary=("该点位于陆地，已从航路采样中剔除" if filtered
+                         else f"wave max {data['max_wave_height_m']} m" if data else ""),
+                error=None if filtered else err))
             if data is None:
                 entry["errors"].append(err or "")
                 if required:

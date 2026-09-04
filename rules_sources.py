@@ -62,16 +62,28 @@ SOURCES = {
         "全国统一标准。平均风力与阵风取「或」关系，任一达标即发布。",
     ),
     "wave_warning": Source(
-        "wave_warning", "海浪预警分级（近岸海域有效波高）",
-        "Sea Wave Warning Levels (nearshore significant wave height)",
-        "https://news.cnr.cn/native/gd/20240724/t20240724_526812240.shtml",
+        "wave_warning", "《海洋灾害应急预案》海浪警报发布标准（广州市规划和自然资源局）",
+        "Marine Disaster Emergency Plan — Sea Wave Warning issuance criteria "
+        "(Guangzhou Bureau of Planning and Natural Resources)",
+        "https://ghzyj.gz.gov.cn/hdjl/ywzsk/zygl/content/post_8340306.html",
+        "政府门户转载的具名发布文件（2020-08 印发），四色阈值原文为"
+        "蓝 2.5–3.5（不含）／黄 3.5–4.5（不含）／橙 4.5–6.0（不含）／红 ≥6.0 米有效波高。"
+        "该页措辞针对珠江口海域，是全国分级的地方落地版本。"
         "近岸与近海阈值不同，本工具取港口坐标，适用【近岸】档。另有硬定义：超过 4 米为灾害性海浪。",
     ),
     "small_craft_ban": Source(
-        "small_craft_ban", "沿海防大风管理规定（小型船艇禁止出海）",
-        "Coastal gale management rules — small craft prohibited from sailing",
+        "small_craft_ban", "沿海防大风管理规定（小型船艇禁止出海）· 转述来源",
+        "Coastal gale management rules — small craft prohibited from sailing "
+        "(secondary source)",
         "https://www.chinanews.com.cn/sh/2026/08-31/10687414.shtml",
-        "原文为「风力预计达到 6 至 8 级时，乡镇船舶、海钓船、休闲船艇、游艇等禁止出海」。"
+        "【转述来源，未取得发布文件原文】。搜遍海事局(msa.gov.cn)与司法部法规库(moj.gov.cn) "
+        "未找到写明「6 级禁止出海」的规章条文，这里引的是新闻转述："
+        "「风力预计达到 6 至 8 级时，乡镇船舶、海钓船、休闲船艇、游艇等禁止出海」。"
+        "已核实的旁证：日照海事局 2026-08-07 在预报「海上 6 级、阵风 7~8 级」时发布大风蓝色预警，"
+        "并点名通知「抗风等级低、危险程度高的小型船舶」"
+        "(https://www.sd.msa.gov.cn/art/2026/8/7/art_5305_1830755.html) —— "
+        "佐证了阈值方向，但不是规则本身的出处。"
+        "阈值予以保留：方向偏严（安全的一侧），且无任何证据说它是错的。"
         "属地方/专项管理规定，非全国统一法规，不同海事辖区可能不同。",
     ),
     "passenger_boarding_ban": Source(
@@ -95,9 +107,12 @@ SOURCES = {
         "这是运行门槛，不是禁飞令。着陆最低标准另计（一类约 550m，二类 300m，三类更低）。",
     ),
     "crosswind": Source(
-        "crosswind", "常见窄体机侧风限制（厂商公布值）",
-        "Published crosswind limits for common narrow-body types",
-        "https://www.kepuchina.cn/article/articleinfo?business_type=100&classify=0&ar_id=257490",
+        "crosswind", "常见窄体机厂商公布的干跑道侧风限制（二手转述）",
+        "Published crosswind limits for common narrow-body types (secondary source)",
+        "",
+        "【二手转述，未取得手册原件】。这条规则本身标的就是 PROD（本工具的产品决策），"
+        "从未声称是法规；15 m/s 的真实来源是波音/空客的机型手册值。"
+        "原来挂的科普网站链接反而像在假装有出处，已去掉——宁可没有链接，不要假装有出处。"
         "B737 干跑道约 15 m/s（30 节）、A320 约 29 节，全机型区间 25–33 节。"
         "【湿跑道 B737 降至 12 m/s，刹车效应中等以下降至 7 m/s】。分机型、分道面，不是通用红线。",
     ),
@@ -195,6 +210,21 @@ SIGMET_HAZARD_ZH = {
 }
 SIGMET_QUALIFIER_ZH = {"SEV": "严重", "MOD": "中度", "EMBD": "嵌入性",
                        "OBSC": "隐蔽性", "FRQ": "频繁", "SQL": "飑线", "ISOL": "孤立"}
+SIGMET_HAZARD_EN = {
+    "TS": "thunderstorms", "TSGR": "thunderstorms with hail", "TURB": "turbulence",
+    "ICE": "icing", "MTW": "mountain wave", "DS": "duststorm", "SS": "sandstorm",
+    "VA": "volcanic ash", "TC": "tropical cyclone", "RDOACT CLD": "radioactive cloud",
+}
+SIGMET_QUALIFIER_EN = {"SEV": "severe", "MOD": "moderate", "EMBD": "embedded",
+                       "OBSC": "obscured", "FRQ": "frequent", "SQL": "squall line",
+                       "ISOL": "isolated"}
+# 飞行情报区名。API 返回的是英文（"SHANGHAI"），夹在中文句子里很硌眼。
+# 查不到就原样保留 —— 名单不全不影响正确性，只影响这一个词好不好读。
+SIGMET_FIR_ZH = {
+    "SHANGHAI": "上海", "BEIJING": "北京", "GUANGZHOU": "广州", "KUNMING": "昆明",
+    "WUHAN": "武汉", "SANYA": "三亚", "SHENYANG": "沈阳", "LANZHOU": "兰州",
+    "URUMQI": "乌鲁木齐", "HONG KONG": "香港", "HONGKONG": "香港", "TAIBEI": "台北",
+}
 
 # 雷暴：无官方阈值，纯运营经验，单列
 THUNDER_KEYWORDS = ("雷暴", "雷阵雨", "thunder")

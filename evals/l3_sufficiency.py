@@ -208,6 +208,33 @@ def check_marine_boundary(rep: Report) -> None:
                   f"意外放行到 ({r['lat']},{r['lon']})" if r else "")
 
 
+def check_geocode_name_guard(rep: Report) -> None:
+    """
+    Geocoding 是模糊匹配，返回的可能跟用户问的完全不是一个城市。
+
+    实测：搜 "Xian" 返回 Xián(西班牙)/Xianning/咸阳/湘潭市/**珠海市**，里面没有西安。
+    原实现取人口最多的 → 珠海市 → 临海 → 回验通过 → "Xian 坐船"拿珠海的海况
+    答了"建议出行"，而正确答案是"西安不临海，弃权"。
+    「取人口最多」只该用于在同名候选里挑一个，不能用于在毫不相干的候选里挑一个。
+
+    这组断言钉死两件事：模糊匹配不许放行，且加了校验之后合法覆盖不许缩水。
+    """
+    print("\n【10】地名解析：模糊匹配不许冒充")
+    for name in ("Xian", "Xi'an", "西安", "Beijing", "南京"):
+        r, m = evidence.resolve_location(name, "marine")
+        rep.check(r is None and m and m.code == "not_coastal",
+                  f"{name}（内陆）不被模糊匹配放行",
+                  f"意外解析成 {r['matched_name']} ({r['lat']},{r['lon']})" if r else "")
+
+    # 加校验不能把合法的罗马化输入也挡掉：英文名必须和中文名解析到同一坐标
+    for en, zh in (("Hangzhou", "杭州"), ("Zhoushan", "舟山"), ("Shantou", "汕头")):
+        a, _ = evidence.resolve_location(en, "marine")
+        b, _ = evidence.resolve_location(zh, "marine")
+        same = a and b and (a["lat"], a["lon"]) == (b["lat"], b["lon"])
+        rep.check(bool(same), f"{en} 与 {zh} 解析到同一坐标（覆盖不因校验缩水）",
+                  f"{a and (a['lat'], a['lon'])} vs {b and (b['lat'], b['lon'])}")
+
+
 def check_taf_coverage(rep: Report) -> None:
     """
     TAF 通常只覆盖约 30 小时，查"明天"时往往只覆盖 20/24 小时。
@@ -281,6 +308,7 @@ def main() -> int:
     check_reachability_gates(rep)
     check_route_sampling(rep)
     check_marine_boundary(rep)
+    check_geocode_name_guard(rep)
     check_taf_coverage(rep)
 
     total = rep.passed + len(rep.failed)

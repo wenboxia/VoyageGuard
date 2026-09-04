@@ -10,6 +10,12 @@ tools/gen_rules_table.py — 从 rules_sources.py 生成 README 的「规则来�
 import rules_sources as S
 
 
+def link(src) -> str:
+    """没有 url 的来源渲染成纯文本 —— 空 markdown 链接 `[名字]()` 是坏链接。
+    侧风那条刻意没有 url：它标的是 PROD，挂个转述链接反而像在假装有出处。"""
+    return f"[{src.name_zh}]({src.url})" if src.url else src.name_zh
+
+
 def bft(ms: float) -> str:
     return f"{ms} m/s（{S.beaufort(ms)} 级）"
 
@@ -19,11 +25,11 @@ def main() -> None:
     print("|---|---|---|---|---|")
 
     print(f"| 小船禁止出海 | 海面风力 {bft(S.BAN_WIND_MS['small'])} | HIGH | `REG` 法规 "
-          f"| [{S.SOURCES['small_craft_ban'].name_zh}]({S.SOURCES['small_craft_ban'].url}) |")
+          f"| {link(S.SOURCES['small_craft_ban'])} |")
     print(f"| 大船不得允许旅客/车辆上船 | 海面风力 {bft(S.BAN_WIND_MS['large'])} | HIGH | `REG` 法规 "
-          f"| [{S.SOURCES['passenger_boarding_ban'].name_zh}]({S.SOURCES['passenger_boarding_ban'].url}) |")
+          f"| {link(S.SOURCES['passenger_boarding_ban'])} |")
     print(f"| 航空 低能见度起飞门槛 | RVR < {S.LVTO_RVR_KM} km | HIGH | `REG` 规章 "
-          f"| [{S.SOURCES['lvto'].name_zh}]({S.SOURCES['lvto'].url}) |")
+          f"| {link(S.SOURCES['lvto'])} |")
 
     src = S.SOURCES["gale_warning"]
     for lv in S.WARNING_ORDER:
@@ -31,26 +37,26 @@ def main() -> None:
         zh, _ = S.WARNING_LABEL[lv]
         level = "MEDIUM" if lv == "blue" else "HIGH"
         print(f"| 大风{zh}预警 | 平均风 ≥{bft(thr['mean_ms'])} **或** 阵风 ≥{bft(thr['gust_ms'])} "
-              f"| {level} | `WARN` 官方预警 | [{src.name_zh}]({src.url}) |")
+              f"| {level} | `WARN` 官方预警 | {link(src)} |")
 
     src = S.SOURCES["wave_warning"]
     for lv in S.WARNING_ORDER:
         zh, _ = S.WARNING_LABEL[lv]
         level = "MEDIUM（大船）/ HIGH（小船，见下）" if lv == "blue" else "HIGH"
         print(f"| 近岸海浪{zh}预警 | 有效波高 ≥{S.WAVE_WARNING[lv]} m | {level} "
-              f"| `WARN` 官方预警 | [{src.name_zh}]({src.url}) |")
+              f"| `WARN` 官方预警 | {link(src)} |")
     print(f"| 灾害性海浪 | 有效波高 > {S.DISASTROUS_WAVE_M} m | HIGH | `WARN` 官方定义 "
-          f"| [{src.name_zh}]({src.url}) |")
+          f"| {link(src)} |")
 
     p = S.PROD_RULES["small_craft_wave"]
     print(f"| 小船遇海浪蓝色预警 | 有效波高 ≥{p['value']} m | HIGH | **`PROD` 本工具判定** | — |")
     p = S.PROD_RULES["aviation_wind"]
     print(f"| 航空 接近窄体机侧风限制 | 平均风 ≥{bft(p['value'])} | HIGH | **`PROD` 本工具判定** "
-          f"| [{S.SOURCES['crosswind'].name_zh}]({S.SOURCES['crosswind'].url}) |")
+          f"| {link(S.SOURCES['crosswind'])} |")
     print(f"| 航空 雷暴 | 天气描述含雷暴 | MEDIUM | **`PROD` 本工具判定** | — |")
     sg = S.SOURCES["sigmet"]
     print(f"| 航路穿越生效中的 SIGMET | 任一危险类型（雷暴/积冰/颠簸/热带气旋等） "
-          f"| {S.SIGMET_LEVEL} | `WARN` 官方预警 | [{sg.name_zh}]({sg.url}) |")
+          f"| {S.SIGMET_LEVEL} | `WARN` 官方预警 | {link(sg)} |")
 
     print("\n### 两条 `PROD` 规则的理由\n")
     print(f"**小船遇海浪蓝色预警 → HIGH**（官方只给了分船型的风速禁航线，没给分船型的浪高线）\n")
@@ -64,7 +70,7 @@ def main() -> None:
     for k in ("small_craft_ban", "passenger_boarding_ban", "gale_warning", "wave_warning",
               "lvto", "crosswind", "sigmet", "yangtze_ban", "mot_reply_6750"):
         s = S.SOURCES[k]
-        print(f"- **[{s.name_zh}]({s.url})** — {s.caveat_zh}")
+        print(f"- **{link(s)}** — {s.caveat_zh}")
 
 
 if __name__ == "__main__":

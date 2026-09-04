@@ -141,9 +141,11 @@ def detect_triggers(bundle: EvidenceBundle) -> list[Trigger]:
                     out.append(Trigger(
                         "ban_passenger_boarding", "REG", "HIGH", name,
                         f"海面风力已达 {S.beaufort(mean)} 级（{mean} m/s）；"
-                        f"按规定，海面风力 7 级以上不得允许旅客、车辆上船",
+                        f"参照山东省规定，海面风力 7 级以上不得允许旅客、车辆上船"
+                        f"（地方规定，其他海区未必相同）",
                         f"Sea wind reaches Force {S.beaufort(mean)} ({mean} m/s); "
-                        f"passengers and vehicles may not board at Force 7 and above",
+                        f"under Shandong provincial rules, passengers and vehicles may not "
+                        f"board at Force 7 and above (a local rule — other sea areas may differ)",
                         "passenger_boarding_ban", mean, "m/s"))
 
             # ── 轴 B：海浪预警 ────────────────────────────────────────────
@@ -221,26 +223,41 @@ def detect_triggers(bundle: EvidenceBundle) -> list[Trigger]:
                     "crosswind", None, ""))
 
     # ── 航路危险天气：SIGMET（仅航空、仅当天，evidence 层已限定）─────────
+    # 文案顺序统一为【事实 → 出处 → 免责】，跟其余触发项一致
+    # （「厦门 — 海面风力已达 6 级（13.1 m/s）；……」）。
+    # 前端会自己拼 "{location} — "，而这里 location 就是「航路」，
+    # 所以正文不能再以「航路」开头，否则读出来是「航路 — 航路穿越……」。
     for sg in bundle.sigmets:
         hz = S.SIGMET_HAZARD_ZH.get(sg.get("hazard") or "", sg.get("hazard") or "危险天气")
         ql = S.SIGMET_QUALIFIER_ZH.get(sg.get("qualifier") or "", "")
-        fir = (sg.get("firName") or "").split(" ", 1)[-1]
-        valid = ""
+        hz_en = S.SIGMET_HAZARD_EN.get(sg.get("hazard") or "",
+                                       (sg.get("hazard") or "hazardous weather").lower())
+        ql_en = S.SIGMET_QUALIFIER_EN.get(sg.get("qualifier") or "", "")
+        fir_raw = (sg.get("firName") or "").split(" ", 1)[-1]
+        # 名单里有就直接接中文，没有就前后留空格，避免「这是SHANGHAI飞行情报区」挤在一起
+        fir_zh = S.SIGMET_FIR_ZH.get(fir_raw.upper()) or f" {fir_raw} "
+        valid_zh = valid_en = ""
         if sg.get("validTimeTo"):
             import datetime as _dt
             end = _dt.datetime.fromtimestamp(sg["validTimeTo"], _dt.timezone.utc) \
                 + _dt.timedelta(hours=8)
-            valid = f"，有效期至北京时间 {end:%H:%M}"
-        band = ""
+            valid_zh = f"，有效期至北京时间 {end:%H:%M}"
+            valid_en = f", valid until {end:%H:%M} Beijing time"
+        band_zh = band_en = ""
         if sg.get("base") is not None and sg.get("top") is not None:
-            band = f"（FL{sg['base'] // 100:03d}-{sg['top'] // 100:03d}）"
+            lo, hi = sg["base"] // 100, sg["top"] // 100
+            band_zh = f"，影响高度 FL{lo:03d}–{hi:03d}"
+            band_en = f", affecting FL{lo:03d}–{hi:03d}"
         out.append(Trigger(
             f"sigmet_{(sg.get('hazard') or 'wx').lower()}", "WARN", S.SIGMET_LEVEL, "航路",
-            f"航路穿越 {fir} 飞行情报区生效中的重要气象情报（SIGMET）：{ql}{hz}{band}{valid}。"
+            f"{ql}{hz}{valid_zh}{band_zh}。"
+            f"这是{fir_zh}飞行情报区正在生效的官方航路危险天气通报（SIGMET）；"
             f"航路危险天气通常由绕飞处置，是否影响航班以航司通知为准",
-            f"Route crosses an active SIGMET in {fir} FIR: {sg.get('qualifier') or ''} "
-            f"{sg.get('hazard') or ''}{band}. En-route hazards are normally handled by "
-            f"rerouting; follow the airline's notice for actual impact",
+            f"{ql_en} {hz_en}".strip().capitalize()
+            + f"{valid_en}{band_en}. "
+            f"This is an official en-route hazard notice (SIGMET) active in the {fir_raw} FIR; "
+            f"en-route hazards are normally handled by rerouting — follow the airline's "
+            f"notice for actual impact",
             "sigmet"))
 
     return out

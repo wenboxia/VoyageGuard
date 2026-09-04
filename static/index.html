@@ -754,6 +754,7 @@
       letter-spacing: 0.08em;
       transition: background 0.18s, box-shadow 0.18s;
     }
+    .lang-toggle[hidden] { display: none; }
     .lang-toggle:hover {
       background: var(--cyan-dim);
       box-shadow: 0 0 12px rgba(0,200,232,0.15);
@@ -912,7 +913,9 @@
       vessel_large_sub:   '能把车开上船',
       vessel_unknown:     '不确定',
       vessel_unknown_sub: '按最严标准算',
-      taf_cov_note:       (h) => `官方机场预报（TAF）覆盖至 ${h}，之后的时段用城市地面天气补齐。`,
+      // 不写「之后的时段」：查【今天】时没被覆盖的是 00:00 到 TAF 签发时刻这段
+      // 已经过去的时间，方向正好相反。「当日其余时段」两种情况都成立。
+      taf_cov_note:       (h) => `官方机场预报（TAF）覆盖至 ${h}，当日其余时段用城市地面天气补齐。`,
       date_hint_air:      '官方机场预报（TAF）约覆盖未来 30 小时，覆盖窗口随签发时刻滚动——具体覆盖到几点会写在结果里，超出部分用城市地面天气补齐',
       date_hint_sea:      '海事覆盖今天起 3 天，按航线距离沿途多点采样',
       triggers_header:    '触发的官方判据',
@@ -1060,11 +1063,16 @@
     document.querySelector('.retry-btn').textContent = t('retry');
     document.querySelector('.footer').innerHTML =
       `VoyageGuard<br>${t('footer_line2')}`;
+    // 结果页不提供语言开关（见 setLangToggleVisible），所以这里不需要重渲染结果。
+  }
 
-    // Re-render result if visible
-    if (document.getElementById('result').style.display !== 'none' && lastResultData) {
-      renderResult(lastResultData);
-    }
+  // 语言开关只在【填写输入】那一屏可用。
+  // 理由不是技术难度，是用户逻辑：填中文地名查中文出行信息的人，拿到结论后再切成英文
+  // 本身就不是真实需求。而模型写的那三段（core_reason / alternative_advice /
+  // weather_summary）是按请求时的 lang 生成的，事后切语言只会得到中英混排的半成品 ——
+  // 与其做半截，不如在结果页干脆不给这个开关。要换语言就「重新评估」回到表单。
+  function setLangToggleVisible(v) {
+    document.getElementById('lang-toggle-btn').hidden = !v;
   }
 
   // ── Date buttons ──
@@ -1109,15 +1117,21 @@
     // 预设只描述场景，不承诺风险等级 —— 等级取决于当天真实天气，写死名字会自相矛盾。
     // 第三个是确定性的：内陆城市选船只，不管天气如何都会弃权，
     // 而弃权恰好是这个项目最独特的能力。
-    'high-air':  { origin: '上海', destination: '广州', transport: 'plane' },
-    'high-ship': { origin: '烟台', destination: '大连', transport: 'ship', vessel: 'unknown' },
-    'low':       { origin: '北京', destination: '西安', transport: 'ship', vessel: 'unknown' },
+    // 英文名走后端的别名表（PORT_ALIASES / AIRPORT_ALIASES），六个都实测能解析。
+    // 注意 'Xi'an' 要带撇号：裸写 'Xian' 会被 Geocoding 模糊匹配到别的城市。
+    'high-air':  { origin: '上海', destination: '广州', transport: 'plane',
+                   en: ['Shanghai', 'Guangzhou'] },
+    'high-ship': { origin: '烟台', destination: '大连', transport: 'ship', vessel: 'unknown',
+                   en: ['Yantai', 'Dalian'] },
+    'low':       { origin: '北京', destination: '西安', transport: 'ship', vessel: 'unknown',
+                   en: ['Beijing', "Xi'an"] },
   };
   function loadPreset(key) {
     const p = PRESETS[key];
     if (!p) return;
-    document.getElementById('origin').value      = p.origin;
-    document.getElementById('destination').value = p.destination;
+    const [o, d] = (currentLang === 'en' && p.en) ? p.en : [p.origin, p.destination];
+    document.getElementById('origin').value      = o;
+    document.getElementById('destination').value = d;
     setTransport(p.transport);
     if (p.vessel) setVessel(p.vessel);
     updateSubmitState();
@@ -1206,6 +1220,7 @@
   function resetToForm() {
     hide('loading'); hide('result'); hide('error');
     show('form-card');
+    setLangToggleVisible(true);
     document.getElementById('submit-btn').disabled = false;
     document.getElementById('submit-btn').textContent = t('submit');
   }
@@ -1217,6 +1232,7 @@
     if (!origin || !dest || !selectedDate) return;
 
     hide('form-card'); hide('result'); hide('error');
+    setLangToggleVisible(false);
     show('loading');
     document.getElementById('loading-subtitle').textContent = t('processing');
     startProgress();
