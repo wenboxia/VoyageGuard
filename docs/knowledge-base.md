@@ -35,12 +35,12 @@
 | 近岸海浪橙色预警 | 有效波高 ≥4.5 m | HIGH | `WARN` 官方预警 | [《海洋灾害应急预案》海浪警报发布标准（广州市规划和自然资源局）](https://ghzyj.gz.gov.cn/hdjl/ywzsk/zygl/content/post_8340306.html) |
 | 近岸海浪红色预警 | 有效波高 ≥6.0 m | HIGH | `WARN` 官方预警 | [《海洋灾害应急预案》海浪警报发布标准（广州市规划和自然资源局）](https://ghzyj.gz.gov.cn/hdjl/ywzsk/zygl/content/post_8340306.html) |
 | 灾害性海浪 | 有效波高 > 4.0 m | HIGH | `WARN` 官方定义 | [《海洋灾害应急预案》海浪警报发布标准（广州市规划和自然资源局）](https://ghzyj.gz.gov.cn/hdjl/ywzsk/zygl/content/post_8340306.html) |
-| 小船遇海浪蓝色预警 | 有效波高 ≥2.5 m | HIGH | **`PROD` 本工具判定** | — |
+| 小船遇海浪蓝色预警 | 有效波高 ≥2.5 m | HIGH | **`PROD` 本工具判定** | [《海洋灾害应急预案》海浪警报发布标准（广州市规划和自然资源局）](https://ghzyj.gz.gov.cn/hdjl/ywzsk/zygl/content/post_8340306.html) |
 | 航空 接近窄体机侧风限制 | 平均风 ≥15.0 m/s（7 级） | HIGH | **`PROD` 本工具判定** | 常见窄体机厂商公布的干跑道侧风限制（二手转述） |
 | 航空 雷暴 | 天气描述含雷暴 | MEDIUM | **`PROD` 本工具判定** | — |
 | 航路穿越生效中的 SIGMET | 任一危险类型（雷暴/积冰/颠簸/热带气旋等） | MEDIUM | `WARN` 官方预警 | [ICAO 重要气象情报（SIGMET）](https://aviationweather.gov/gfa/#sigmet) |
 
-### 两条 `PROD` 规则的理由
+### 三条 `PROD` 规则的理由
 
 **小船遇海浪蓝色预警 → HIGH**（官方只给了分船型的风速禁航线，没给分船型的浪高线）
 

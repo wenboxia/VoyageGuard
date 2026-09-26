@@ -1352,7 +1352,7 @@
         <span class="trigger-cls ${escHtml(x.cls)}">${t('cls_' + x.cls) || escHtml(x.cls)}</span>
         <div class="trigger-main">
           <div class="trigger-text">${escHtml(x.location)} — ${escHtml(x.text)}</div>
-          ${x.source_url
+          ${!x.source ? '' : x.source_url
             ? `<a class="trigger-src" href="${escHtml(x.source_url)}" target="_blank" rel="noopener">〔${escHtml(x.source)}〕</a>`
             : `<span class="trigger-src">〔${escHtml(x.source)}〕</span>`}
         </div>

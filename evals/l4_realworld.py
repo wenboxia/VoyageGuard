@@ -167,7 +167,7 @@ def main() -> int:
                   f"始终落在我们的 MEDIUM 档，不是阈值定错，是缺了一条轴。")
         near = [r for r in missed if r["wind"] and 12.0 <= r["wind"] < 13.9]
         if near:
-            print(f"    · 贴线漏判 {len(near)} 条 —— 平均风 12.0–13.9 m/s，"
+            print(f"    · 贴线漏判 {len(near)} 条（按风速另算，与台风组有重叠）—— 平均风 12.0–13.9 m/s，"
                   f"就差在大船禁航线（13.9）下方。ERA5 网格 0.25° 会平滑掉海峡的局地峰值风，"
                   f"新闻报道的实际风力普遍高于重建值。")
 

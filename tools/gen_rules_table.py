@@ -1,10 +1,10 @@
 """
-tools/gen_rules_table.py — 从 rules_sources.py 生成 README 的「规则来源表」
+tools/gen_rules_table.py — 从 rules_sources.py 生成 docs/knowledge-base.md 的「规则来源表」
 
 存在的理由：上一版 README 写的阈值和代码里的不一致，而且文档里说的"规则来源"
 其实是项目自己的 PRD（等于自己引用自己）。表由代码生成就不会再漂移。
 
-用法：python -m tools.gen_rules_table   然后把输出粘进 README 对应小节
+用法：python -m tools.gen_rules_table   然后把输出粘进 docs/knowledge-base.md 对应小节
 """
 
 import rules_sources as S
@@ -49,7 +49,9 @@ def main() -> None:
           f"| {link(src)} |")
 
     p = S.PROD_RULES["small_craft_wave"]
-    print(f"| 小船遇海浪蓝色预警 | 有效波高 ≥{p['value']} m | HIGH | **`PROD` 本工具判定** | — |")
+    # 阈值 2.5 m 取自官方海浪蓝色预警标准，规则引擎也把这条挂在该出处下（rules.py 的 source_key）
+    print(f"| 小船遇海浪蓝色预警 | 有效波高 ≥{p['value']} m | HIGH | **`PROD` 本工具判定** "
+          f"| {link(S.SOURCES['wave_warning'])} |")
     p = S.PROD_RULES["aviation_wind"]
     print(f"| 航空 接近窄体机侧风限制 | 平均风 ≥{bft(p['value'])} | HIGH | **`PROD` 本工具判定** "
           f"| {link(S.SOURCES['crosswind'])} |")
@@ -58,7 +60,7 @@ def main() -> None:
     print(f"| 航路穿越生效中的 SIGMET | 任一危险类型（雷暴/积冰/颠簸/热带气旋等） "
           f"| {S.SIGMET_LEVEL} | `WARN` 官方预警 | {link(sg)} |")
 
-    print("\n### 两条 `PROD` 规则的理由\n")
+    print("\n### 三条 `PROD` 规则的理由\n")
     print(f"**小船遇海浪蓝色预警 → HIGH**（官方只给了分船型的风速禁航线，没给分船型的浪高线）\n")
     print(f"> {S.PROD_RULES['small_craft_wave']['reason_zh']}\n")
     print(f"**航空 平均风 ≥15 m/s → HIGH**\n")

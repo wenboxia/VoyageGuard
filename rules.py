@@ -220,7 +220,7 @@ def detect_triggers(bundle: EvidenceBundle) -> list[Trigger]:
                     "Thunderstorm at the airport. No regulatory threshold exists; based on "
                     "operational experience, convective weather sharply raises delay and "
                     "cancellation risk (this tool's judgement)",
-                    "crosswind", None, ""))
+                    "", None, ""))   # 雷暴没有任何出处，source_key 必须留空（曾误写成 crosswind）
 
     # ── 航路危险天气：SIGMET（仅航空、仅当天，evidence 层已限定）─────────
     # 文案顺序统一为【事实 → 出处 → 免责】，跟其余触发项一致
