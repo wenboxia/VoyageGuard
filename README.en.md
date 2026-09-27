@@ -28,13 +28,13 @@ VoyageGuard checks live weather data against officially published warning and na
 **whether any official line has been crossed today** — citing the source for each one. When the evidence isn't there,
 it says so ("insufficient evidence") instead of guessing. Flights and ferries, Chinese and English UI.
 
-|  |  |
-|---|---|
-| **Problem** | Airline apps only report flights already cancelled, weather apps give raw numbers, official notices are late and scattered. Nobody tells you whether a number crosses a line |
-| **Approach** | Code fetches the required evidence first → the model explains and advises → a rule engine outside the model loop makes the final call |
-| **Output** | A risk level plus sourced triggers (regulation / official warning / this tool's judgement); a fourth verdict, `UNKNOWN`, when evidence is insufficient |
-| **Shape** | An agent: in a ReAct loop the model decides whether and which supplementary tool to call (2 tools, up to 5 rounds) — but fenced in: required evidence is fetched by code first, and the verdict is made outside the loop. Terminology follows Anthropic's [*Building effective agents*](https://www.anthropic.com/engineering/building-effective-agents) |
-| **Evaluation** | Four layers: L1 39 cases across 4 models · L2 real network + 3 fault injections · L3 187 zero-token checks · L4 25 real suspension / normal-service records |
+<table>
+  <tr><td width="96"><b>Problem</b></td><td>Airline apps only report flights already cancelled, weather apps give raw numbers, official notices are late and scattered. Nobody tells you whether a number crosses a line</td></tr>
+  <tr><td width="96"><b>Approach</b></td><td>Code fetches the required evidence first → the model explains and advises → a rule engine outside the model loop makes the final call</td></tr>
+  <tr><td width="96"><b>Output</b></td><td>A risk level plus sourced triggers (regulation / official warning / this tool's judgement); a fourth verdict, <code>UNKNOWN</code>, when evidence is insufficient</td></tr>
+  <tr><td width="96"><b>Shape</b></td><td>An agent: in a ReAct loop the model decides whether and which supplementary tool to call (2 tools, up to 5 rounds) — but fenced in: required evidence is fetched by code first, and the verdict is made outside the loop. Terminology follows Anthropic's <a href="https://www.anthropic.com/engineering/building-effective-agents"><i>Building effective agents</i></a></td></tr>
+  <tr><td width="96"><b>Evaluation</b></td><td>Four layers: L1 39 cases across 4 models · L2 real network + 3 fault injections · L3 187 zero-token checks · L4 25 real suspension / normal-service records</td></tr>
+</table>
 
 <p align="center">
   <img src="docs/images/hero.en.png" alt="Live result page in the English UI: Yantai to Dalian by ferry" width="880">

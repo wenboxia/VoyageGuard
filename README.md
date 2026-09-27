@@ -27,13 +27,13 @@
 把实时气象数据和官方发布的预警、禁航标准自动比对，告诉你**今天有没有越过某条官方的线**，
 每一条都点名出处；证据不够时明说「证据不足」，不硬给结论。飞机与船只两种场景，中英双语。
 
-|  |  |
-|---|---|
-| **问题** | 航司 App 只报已经取消的航班，天气 App 只给数字，官方公告滞后又分散——缺一层「这个数字越没越线」 |
-| **做法** | 代码先取必需证据 → 模型负责解释和建议 → 规则引擎在模型循环之外做最终判定 |
-| **输出** | 风险等级 + 带出处的触发项（法规 / 官方预警 / 本工具判定）；证据不足时输出第四种结论 `UNKNOWN` |
-| **形态** | Agent：ReAct 循环里模型自己决定调不调、调哪个补充工具（2 个工具，上限 5 轮）；但被围起来——必需证据由代码先取，判定在循环外。分法参照 Anthropic [*Building effective agents*](https://www.anthropic.com/engineering/building-effective-agents) |
-| **评测** | 四层：L1 39 条用例横评 4 家模型 · L2 真实网络 + 3 组故障注入 · L3 187 条零 token 断言 · L4 25 条真实停航 / 通航记录 |
+<table>
+  <tr><td width="64"><b>问&#8288;题</b></td><td>航司 App 只报已经取消的航班，天气 App 只给数字，官方公告滞后又分散——缺一层「这个数字越没越线」</td></tr>
+  <tr><td width="64"><b>做&#8288;法</b></td><td>代码先取必需证据 → 模型负责解释和建议 → 规则引擎在模型循环之外做最终判定</td></tr>
+  <tr><td width="64"><b>输&#8288;出</b></td><td>风险等级 + 带出处的触发项（法规 / 官方预警 / 本工具判定）；证据不足时输出第四种结论 <code>UNKNOWN</code></td></tr>
+  <tr><td width="64"><b>形&#8288;态</b></td><td>Agent：ReAct 循环里模型自己决定调不调、调哪个补充工具（2 个工具，上限 5 轮）；但被围起来——必需证据由代码先取，判定在循环外。分法参照 Anthropic <a href="https://www.anthropic.com/engineering/building-effective-agents"><i>Building effective agents</i></a></td></tr>
+  <tr><td width="64"><b>评&#8288;测</b></td><td>四层：L1 39 条用例横评 4 家模型 · L2 真实网络 + 3 组故障注入 · L3 187 条零 token 断言 · L4 25 条真实停航 / 通航记录</td></tr>
+</table>
 
 <p align="center">
   <img src="docs/images/hero.png" alt="线上真实结果页：舟山到嵊泗，船只" width="880">
