@@ -1,0 +1,75 @@
+<!doctype html>
+<!-- README 横幅。由 tools/gen_banner.py 用无头 Chrome 渲染成 docs/images/banner.png。
+     右侧四个数字全部取自仓库（docs/evaluation.md），改了评测数字要同步改这里。 -->
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<style>
+  :root {
+    --bg: #0a0e17; --surface: #0f1522; --border: #1c2433; --text: #e8edf5;
+    --muted: #8b96a8; --cyan: #00c8e8; --amber: #f0b429; --green: #00e676; --slate: #94a3b8;
+  }
+  * { margin: 0; padding: 0; box-sizing: border-box; }
+  html, body { width: 1600px; height: 380px; overflow: hidden; }
+  body {
+    background:
+      radial-gradient(900px 380px at 18% 40%, rgba(0,200,232,0.10), transparent 70%),
+      radial-gradient(rgba(139,150,168,0.10) 1px, transparent 1px) 0 0 / 22px 22px,
+      var(--bg);
+    color: var(--text);
+    font-family: "PingFang SC", "Hiragino Sans GB", "Helvetica Neue", sans-serif;
+    display: flex; align-items: center; justify-content: space-between;
+    padding: 0 72px;
+  }
+  .left { display: flex; align-items: center; gap: 44px; }
+  .mark {
+    width: 128px; height: 128px; border-radius: 26px; flex-shrink: 0;
+    border: 3px solid var(--cyan); background: rgba(0,200,232,0.06);
+    display: flex; align-items: center; justify-content: center;
+    font: 700 54px "SF Mono", Menlo, monospace; color: var(--cyan); letter-spacing: -2px;
+    box-shadow: 0 0 40px rgba(0,200,232,0.18);
+  }
+  .tag { font: 600 15px "SF Mono", Menlo, monospace; letter-spacing: 6px; color: var(--cyan); margin-bottom: 10px; }
+  h1 { font: 700 68px "Helvetica Neue", "PingFang SC", sans-serif; letter-spacing: -1px; line-height: 1; }
+  h2 { font-size: 34px; font-weight: 600; margin-top: 16px; }
+  .en { font: 17px "SF Mono", Menlo, monospace; color: var(--muted); margin-top: 12px; }
+  .flow { display: flex; align-items: center; gap: 10px; margin-top: 26px; font-size: 17px; color: var(--muted); }
+  .flow span.s {
+    padding: 6px 12px; border-radius: 7px; border: 1px solid var(--border); background: var(--surface); color: var(--text);
+  }
+  .flow span.s.rule { border-color: rgba(0,230,118,0.5); color: var(--green); }
+  .flow span.s.out { border-color: rgba(148,163,184,0.5); color: var(--slate); }
+  .cards { display: grid; grid-template-columns: 250px 250px; gap: 16px; }
+  .card {
+    background: var(--surface); border: 1px solid var(--border); border-radius: 14px;
+    padding: 20px 22px 18px;
+  }
+  .num { font: 700 40px "Helvetica Neue", sans-serif; letter-spacing: -1px; color: var(--cyan); line-height: 1; }
+  .num.amber { color: var(--amber); }
+  .num.green { color: var(--green); }
+  .num.slate { color: var(--slate); }
+  .num small { font-size: 24px; color: var(--muted); font-weight: 500; }
+  .lbl { font-size: 16px; color: var(--muted); margin-top: 10px; line-height: 1.35; }
+</style>
+</head>
+<body>
+  <div class="left">
+    <div class="mark">VG</div>
+    <div>
+      <div class="tag">TRAVEL RISK AGENT</div>
+      <h1>VoyageGuard</h1>
+      <h2>出行气象决策 Agent</h2>
+      <div class="en">Weather-risk decision agent for flights &amp; ferries</div>
+      <div class="flow">
+        <span class="s">代码先取证据</span>→<span class="s">模型解释</span>→<span class="s rule">规则引擎判定</span>→<span class="s out">越线 / 证据不足</span>
+      </div>
+    </div>
+  </div>
+  <div class="cards">
+    <div class="card"><div class="num">89.7<small>→</small>100%</div><div class="lbl">生产模型经规则引擎<br>安全网后的准确率</div></div>
+    <div class="card"><div class="num amber">21<small> / 24</small></div><div class="lbl">数据缺失时模型<br>仍强行下结论</div></div>
+    <div class="card"><div class="num green">0%</div><div class="lbl">25 条真实停航 / 通航<br>记录上的误报率</div></div>
+    <div class="card"><div class="num slate">4</div><div class="lbl">种结论，含第四态<br>「证据不足」</div></div>
+  </div>
+</body>
+</html>

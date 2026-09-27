@@ -7,7 +7,8 @@ tools/gen_screenshots.py — 生成 README / docs 里的产品界面截图
 
 用法：
     uvicorn app:app --reload          # 先起本地应用
-    python -m tools.gen_screenshots
+    python -m tools.gen_screenshots            # 全部
+    python -m tools.gen_screenshots hero.en.png abstain.en.png   # 只拍指定的
 
 依赖（**都不进 requirements.txt**，理由同 gen_charts.py 的 matplotlib——
 只在本地重新出图时需要，进了会被打进 Vercel 函数包）：
@@ -24,6 +25,7 @@ import base64
 import json
 import pathlib
 import subprocess
+import sys
 import time
 import urllib.request
 
@@ -51,6 +53,14 @@ SHOTS = [
     ("abstain.png",
      "loadPreset('low'); submitAssess();",
      "北京→西安 船只 · 证据不足第四态（确定性，任何时候都一样）", True),
+    # 英文版：先切到英文界面再用预设。hero.en 用「跨海客滚航线」预设 + 第三个日期按钮
+    # （天气每天变，出图前先用规则引擎探一遍哪天有触发项，再改这里的日期按钮序号）
+    ("hero.en.png",
+     "switchLang(); loadPreset('high-ship'); document.querySelectorAll('.date-btn')[2].click(); submitAssess();",
+     "Yantai → Dalian · full result page (English UI)", True),
+    ("abstain.en.png",
+     "switchLang(); loadPreset('low'); submitAssess();",
+     "Beijing → Xi'an by ship · insufficient evidence (English UI)", True),
     ("trace.png",
      ("document.getElementById('origin').value='舟山';"
       "document.getElementById('destination').value='嵊泗';"
@@ -147,7 +157,10 @@ def main() -> None:
             except Exception:
                 time.sleep(0.5)
 
+        only = set(sys.argv[1:])                   # 可只拍指定的几张：python -m tools.gen_screenshots hero.en.png
         for name, trigger, desc, split in SHOTS:
+            if only and name not in only:
+                continue
             req = urllib.request.Request(
                 f"http://127.0.0.1:{PORT}/json/new?{APP}", method="PUT")
             tab = json.load(urllib.request.urlopen(req, timeout=10))
