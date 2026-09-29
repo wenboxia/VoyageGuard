@@ -16,37 +16,39 @@
     --sans: 'Outfit', 'PingFang SC', 'Hiragino Sans GB', system-ui, sans-serif;
   }
   * { margin: 0; padding: 0; box-sizing: border-box; }
-  html, body { width: 1600px; height: 100vh; overflow: hidden; }
+  html, body { width: 100vw; height: 100vh; overflow: hidden; }
   body {
     position: relative;
     background: var(--bg);
     background-image: radial-gradient(circle, rgba(0,200,232,0.06) 1px, transparent 1px);
     background-size: 28px 28px;
     color: var(--text); font-family: var(--sans);
-    padding: 36px 40px 0;
+    padding: 30px 32px 0;
   }
 
-  .top { display: flex; justify-content: space-between; align-items: center; margin-bottom: 30px; }
-  .top-tag { font: 500 13px var(--mono); letter-spacing: 0.28em; color: var(--cyan); }
-  .legend { display: flex; gap: 22px; font: 500 12px var(--mono); letter-spacing: 0.06em; }
+  .top { display: flex; justify-content: space-between; align-items: center; margin-bottom: 24px; }
+  .top-tag { font: 500 14px var(--mono); letter-spacing: 0.28em; color: var(--cyan); }
+  .legend { display: flex; gap: 20px; font: 500 13.5px var(--mono); letter-spacing: 0.06em; }
   .legend span { display: flex; align-items: center; gap: 8px; }
   .legend i { width: 10px; height: 10px; border-radius: 3px; display: inline-block; }
 
   .row { display: flex; align-items: stretch; }
-  .gap { width: 44px; flex-shrink: 0; }
+  .gap { width: 31px; flex-shrink: 0; }
 
   .card {
     background: var(--surface); border: 1px solid var(--border); border-radius: 14px;
-    padding: 20px 20px 18px; display: flex; flex-direction: column;
+    padding: 18px 18px 16px; display: flex; flex-direction: column;
   }
-  .card.io { width: 196px; background: rgba(11,20,34,0.7); }
-  .card.stage { width: 330px; }
+  .card.io { width: 160px; padding-left: 16px; padding-right: 16px; background: rgba(11,20,34,0.7); }
+  .card.stage { width: 300px; }
+  .card { flex-shrink: 0; }
+  .card.rule { width: 290px; }
   .card.det   { border-color: rgba(0,200,232,0.45); box-shadow: 0 0 28px rgba(0,200,232,0.08); }
-  .card.model { border-color: rgba(240,180,41,0.45); box-shadow: 0 0 28px rgba(240,180,41,0.07); width: 290px; }
+  .card.model { border-color: rgba(240,180,41,0.45); box-shadow: 0 0 28px rgba(240,180,41,0.07); width: 262px; }
   .card.rule  { border-color: rgba(0,230,118,0.45); box-shadow: 0 0 28px rgba(0,230,118,0.07); }
 
   .badge {
-    align-self: flex-start; font: 500 11px var(--mono); letter-spacing: 0.08em;
+    align-self: flex-start; font: 500 12.5px var(--mono); letter-spacing: 0.08em;
     padding: 3px 8px; border-radius: 5px; margin-bottom: 12px;
   }
   .det .badge   { background: rgba(0,200,232,0.12); color: var(--cyan); }
@@ -54,41 +56,41 @@
   .rule .badge  { background: rgba(0,230,118,0.12); color: var(--green); }
   .io .badge    { background: rgba(148,163,184,0.12); color: var(--slate); }
 
-  h3 { font-size: 21px; font-weight: 600; color: var(--text-bright); line-height: 1.25; }
-  .sub { font-size: 14px; color: var(--text-muted); margin-top: 5px; }
+  h3 { font-size: 23px; font-weight: 600; color: var(--text-bright); line-height: 1.25; }
+  .sub { font-size: 15.5px; color: var(--text-muted); margin-top: 5px; }
   ul { list-style: none; margin-top: 16px; display: flex; flex-direction: column; gap: 10px; }
-  li { font-size: 14.5px; line-height: 1.45; padding-left: 14px; position: relative; }
-  li::before { content: ''; position: absolute; left: 0; top: 9px; width: 5px; height: 5px; border-radius: 50%; background: var(--border-bright); }
+  li { font-size: 16px; line-height: 1.45; padding-left: 14px; position: relative; }
+  li::before { content: ''; position: absolute; left: 0; top: 10px; width: 5px; height: 5px; border-radius: 50%; background: var(--border-bright); }
   .det li::before { background: rgba(0,200,232,0.6); }
   .model li::before { background: rgba(240,180,41,0.6); }
   .rule li::before { display: none; }
   .rule li { padding-left: 26px; }
   .rule li b {
-    position: absolute; left: 0; top: 1px; width: 18px; height: 18px; border-radius: 5px;
-    background: rgba(0,230,118,0.12); color: var(--green); font: 600 11px/18px var(--mono); text-align: center;
+    position: absolute; left: 0; top: 2px; width: 19px; height: 19px; border-radius: 5px;
+    background: rgba(0,230,118,0.12); color: var(--green); font: 600 12px/19px var(--mono); text-align: center;
   }
-  code { font: 12.5px var(--mono); color: var(--text-bright); }
-  .file { margin-top: auto; padding-top: 14px; font: 12px var(--mono); color: var(--text-muted); }
+  code { font: 14px var(--mono); color: var(--text-bright); }
+  .file { margin-top: auto; padding-top: 14px; font: 13px var(--mono); color: var(--text-muted); }
 
   .chips { display: flex; flex-wrap: wrap; gap: 6px; margin-top: 8px; }
-  .chip { font: 600 11px var(--mono); padding: 3px 7px; border-radius: 5px; letter-spacing: 0.04em; }
+  .chip { font: 600 12px var(--mono); padding: 3px 7px; border-radius: 5px; letter-spacing: 0.04em; }
   .chip.low { background: rgba(0,230,118,0.12); color: var(--green); }
   .chip.med { background: rgba(240,180,41,0.12); color: var(--amber); }
   .chip.high { background: rgba(255,64,96,0.12); color: var(--red); }
   .chip.unk { background: rgba(148,163,184,0.14); color: var(--slate); }
-  .io .item { font-size: 14.5px; line-height: 1.45; margin-top: 14px; }
+  .io .item { font-size: 15px; line-height: 1.45; margin-top: 14px; }
   .io .item:first-of-type { margin-top: 2px; }
-  .io .k { font: 500 11px var(--mono); color: var(--text-muted); letter-spacing: 0.06em; display: block; margin-bottom: 3px; }
+  .io .k { font: 500 12px var(--mono); color: var(--text-muted); letter-spacing: 0.06em; display: block; margin-bottom: 3px; }
 
   .bypass-label {
     position: absolute; transform: translateX(-50%); text-align: center;
-    font-size: 14px; color: var(--text); white-space: nowrap;
+    font-size: 16px; color: var(--text); white-space: nowrap;
   }
-  .bypass-label em { font-style: normal; color: var(--slate); font: 500 12px var(--mono); letter-spacing: 0.06em; display: block; margin-bottom: 4px; }
+  .bypass-label em { font-style: normal; color: var(--slate); font: 500 13px var(--mono); letter-spacing: 0.06em; display: block; margin-bottom: 4px; }
 
   .footer {
-    position: absolute; left: 40px; right: 40px;
-    display: flex; justify-content: center; font-size: 15px; color: var(--text);
+    position: absolute; left: 32px; right: 32px;
+    display: flex; justify-content: center; font-size: 17px; color: var(--text);
   }
   .footer span { padding: 8px 18px; border: 1px solid var(--border); border-radius: 999px; background: rgba(11,20,34,0.8); }
   .footer b { color: var(--text-bright); font-weight: 600; }
@@ -168,21 +170,21 @@ const T = {
     tag: "REQUEST FLOW · POST /api/assess",
     in_k1: "ROUTE", in_v1: "出发地 → 目的地",
     in_k2: "DATE", in_v2: "今天起 3 天",
-    in_k3: "MODE", in_v3: "飞机 / 船只（含船型）",
+    in_k3: "MODE", in_v3: "飞机 / 船只<br>船只另选船型",
     det_h: "确定性证据管线", det_sub: "不经模型",
-    det_1: "解析坐标：白名单 → 名字校验 → 海域回验",
-    det_2: "必需证据：风速 · 阵风 · 能见度 · 有效浪高",
-    det_3: "船只沿航路采样；航空当天查 SIGMET",
+    det_1: "解析坐标：<br>白名单 → 名字校验 → 海域回验",
+    det_2: "必需证据：<br>风速 · 阵风 · 能见度 · 有效浪高",
+    det_3: "船只：沿航路采样<br>航空：当天查 SIGMET",
     det_4: "充分性判定",
     model_h: "模型 · ReAct 循环", model_sub: "负责解释与建议，不负责判定",
-    model_1: "读取预取的结构化证据（JSON）",
-    model_2: "按需调用补充工具，最多 5 轮<br><code>search_weather_warning</code><br><code>get_weather_forecast</code>",
+    model_1: "读取预取证据（JSON）",
+    model_2: "按需调用补充工具，≤ 5 轮<br><code>search_weather_warning</code><br><code>get_weather_forecast</code>",
     model_3: "产出通俗解释与备选建议",
     rule_h: "规则引擎 verifier", rule_sub: "持有最终判定权，位于模型循环之外",
     rule_1: "证据不足 → <code>UNKNOWN</code>",
-    rule_2: "越过官方线而模型判低 → 强制升级",
-    rule_3: "模型判 <code>HIGH</code> 而指标不支持 → 降级",
-    out_k1: "RISK LEVEL", out_k2: "TRIGGERS · 带出处", out_k3: "TRACE", out_v3: "真实执行轨迹",
+    rule_2: "越线但模型判低 → 强制升级",
+    rule_3: "无指标支撑的 <code>HIGH</code> → 降级",
+    out_k1: "RISK LEVEL", out_k2: "TRIGGERS", out_k3: "TRACE", out_v3: "真实执行轨迹",
     by_em: "BYPASS", by: "必需证据直达规则引擎 · 证据不足时跳过模型调用",
     footer: "安全关键证据的获取与风险判定，<b>均不取决于模型的自由裁量</b>",
   },
@@ -196,15 +198,15 @@ const T = {
     det_2: "Required: wind · gusts · visibility · waves",
     det_3: "Route sampling (ship) · SIGMET (same-day flight)",
     det_4: "Sufficiency check",
-    model_h: "Model · ReAct loop", model_sub: "Explains and advises; does not decide",
+    model_h: "Model · ReAct loop", model_sub: "Explains; does not decide",
     model_1: "Reads pre-fetched evidence (JSON)",
-    model_2: "Optional tools, up to 5 rounds<br><code>search_weather_warning</code><br><code>get_weather_forecast</code>",
+    model_2: "Optional tools, ≤ 5 rounds<br><code>search_weather_warning</code><br><code>get_weather_forecast</code>",
     model_3: "Writes explanation and alternatives",
     rule_h: "Rule-engine verifier", rule_sub: "Final verdict, outside the model loop",
     rule_1: "Insufficient evidence → <code>UNKNOWN</code>",
     rule_2: "Line crossed, model rated low → escalate",
     rule_3: "<code>HIGH</code> without support → downgrade",
-    out_k1: "RISK LEVEL", out_k2: "TRIGGERS · SOURCED", out_k3: "TRACE", out_v3: "Real execution trace",
+    out_k1: "RISK LEVEL", out_k2: "TRIGGERS", out_k3: "TRACE", out_v3: "Real execution trace",
     by_em: "BYPASS", by: "Rule engine reads required evidence directly · model skipped when evidence is insufficient",
     footer: "Neither the safety-critical evidence nor the verdict <b>depends on the model's discretion</b>",
   },
@@ -215,7 +217,7 @@ document.querySelectorAll("[data-t]").forEach(el => { el.innerHTML = T[lang][el.
 
 function draw() {
   const r = id => document.getElementById(id).getBoundingClientRect();
-  const W = 1600, H = window.innerHeight;
+  const W = window.innerWidth, H = 1200;   // 覆盖层取足够高，不依赖视口高度
   const svg = document.createElementNS("http://www.w3.org/2000/svg", "svg");
   svg.setAttribute("width", W); svg.setAttribute("height", H);
   svg.innerHTML = `<defs>
