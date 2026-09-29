@@ -438,6 +438,9 @@ def _geocode_in(name: str, language: str) -> tuple[float, float, str] | None:
     cand = [r for r in results if _name_matches(q, _normalize(r.get("name", "")))]
     if not cand:
         return None
+    # 有完全同名的就只在完全同名里挑：前缀匹配会把 "Wuhan" 配到 "Wuhang"（杭州湾边）
+    exact = [r for r in cand if _normalize(r.get("name", "")) == q]
+    cand = exact or cand
     # 同名地点很常见（实测搜"三亚"返回海南/广西/玉林三个），取人口最多的那个，
     # 但这只是猜测——真正的保险是下面的海洋 API 回验。
     best = max(cand, key=lambda r: r.get("population", 0) or 0)
@@ -446,7 +449,7 @@ def _geocode_in(name: str, language: str) -> tuple[float, float, str] | None:
 
 def _geocode(name: str) -> tuple[float, float, str] | None:
     """
-    先用中文库查，查不到名字对得上的再用英文库查一次（罗马化输入走这条）。
+    按输入的文字选库：中文输入先查中文库，拼音 / 英文输入先查英文库，落空再查另一个。
 
     为什么必须校验名字对得上：Open-Meteo Geocoding 是模糊匹配，罗马化输入会返回
     【毫不相干】的城市——实测 "Xian" 返回 Xián(西班牙)/Xianning/咸阳/湘潭市/**珠海市**，
@@ -457,8 +460,14 @@ def _geocode(name: str) -> tuple[float, float, str] | None:
     这就是本项目反复出现的那个错误模式的第六种马甲：**回答一个前提不成立的问题**，
     而且错在危险方向（该弃权时放行）。加上名字校验后 "Xian" 落到 Xianning（湖北，内陆）
     → 回验判定非海域 → 正确弃权；"Xi'an" 落到真正的西安 → 同样弃权。
+
+    同一个错误的变体（2026-09-29 发现）：拼音输入原来也先查中文库，而中文库里
+    名字对得上拼音的，往往是罗马化了的小地方——"Beijing" 落到山西一个同名村，
+    "Jiaxing" 落到台湾，"Wuhan" 前缀匹配到杭州湾边的 "Wuhang"（临海，回验能过，
+    内陆的武汉于是会拿到一个船舶结论）。英文库对这些都解析正确，所以拼音先查英文库。
     """
-    for language in ("zh", "en"):
+    order = ("en", "zh") if name.isascii() else ("zh", "en")
+    for language in order:
         hit = _geocode_in(name, language)
         if hit:
             return hit

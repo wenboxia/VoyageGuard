@@ -220,7 +220,7 @@ def check_geocode_name_guard(rep: Report) -> None:
     这组断言钉死两件事：模糊匹配不许放行，且加了校验之后合法覆盖不许缩水。
     """
     print("\n【10】地名解析：模糊匹配不许冒充")
-    for name in ("Xian", "Xi'an", "西安", "Beijing", "南京"):
+    for name in ("Xian", "Xi'an", "西安", "Beijing", "南京", "Wuhan"):
         r, m = evidence.resolve_location(name, "marine")
         rep.check(r is None and m and m.code == "not_coastal",
                   f"{name}（内陆）不被模糊匹配放行",
@@ -233,6 +233,14 @@ def check_geocode_name_guard(rep: Report) -> None:
         same = a and b and (a["lat"], a["lon"]) == (b["lat"], b["lon"])
         rep.check(bool(same), f"{en} 与 {zh} 解析到同一坐标（覆盖不因校验缩水）",
                   f"{a and (a['lat'], a['lon'])} vs {b and (b['lat'], b['lon'])}")
+
+    # 拼音输入必须先查英文库：中文库里对得上拼音的多是罗马化的小地方
+    # （实测 "Beijing" → 山西同名村，"Jiaxing" → 台湾，"Wuhan" → 杭州湾边的 "Wuhang"）
+    for en, zh in (("Beijing", "北京"), ("Jiaxing", "嘉兴")):
+        a, b = evidence._geocode(en), evidence._geocode(zh)
+        near = a and b and evidence.great_circle_km(a[0], a[1], b[0], b[1]) < 5
+        rep.check(bool(near), f"拼音 {en} 与 {zh} 落在同一城市（不被同名小地方冒充）",
+                  f"{a and a[:2]} vs {b and b[:2]}")
 
 
 def check_taf_coverage(rep: Report) -> None:
