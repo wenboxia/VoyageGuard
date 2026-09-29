@@ -90,7 +90,7 @@ async def assess(req: AssessRequest, request: Request):
 
     try:
         bundle = evidence.build_evidence(
-            req.origin, req.destination, req.date, transport, vessel_type)
+            req.origin, req.destination, req.date, transport, vessel_type, lang=lang)
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"证据预取失败: {e}")
 
@@ -102,7 +102,9 @@ async def assess(req: AssessRequest, request: Request):
         trace.append({
             "kind": "rule", "name": "abstention_gate", "args": {},
             "ok": True, "latency_ms": 0,
-            "summary": f"证据不足（缺 {len(bundle.missing)} 项），跳过模型调用直接弃权",
+            "summary": (f"证据不足（缺 {len(bundle.missing)} 项），跳过模型调用直接弃权" if lang != "en"
+                        else f"insufficient evidence ({len(bundle.missing)} missing); "
+                             f"model call skipped, abstaining"),
             "error": None,
         })
         result = rules.evaluate(None, bundle, lang=lang)

@@ -248,7 +248,8 @@ def run_agent(user_message: str, lang: str = "zh", provider_key: str | None = No
     client = client or providers.make_client(provider_key)
     model = model or providers.model_id(provider_key)
 
-    system_content = SYSTEM_PROMPT + (LANG_DIRECTIVE_EN if lang == "en" else "")
+    zh = lang != "en"
+    system_content = SYSTEM_PROMPT + (LANG_DIRECTIVE_EN if not zh else "")
     messages = [
         {"role": "system", "content": system_content},
         {"role": "user", "content": user_message},
@@ -266,7 +267,7 @@ def run_agent(user_message: str, lang: str = "zh", provider_key: str | None = No
         except Exception as e:
             trace.append({"kind": "llm", "name": f"{provider_key}:{model}", "args": {},
                           "ok": False, "latency_ms": int((time.perf_counter() - t0) * 1000),
-                          "summary": "", "error": f"模型调用失败: {e}"})
+                          "summary": "", "error": (f"模型调用失败: {e}" if zh else f"model call failed: {e}")})
             meta["total_ms"] = int((time.perf_counter() - t_start) * 1000)
             return None, trace, meta
 
@@ -282,7 +283,9 @@ def run_agent(user_message: str, lang: str = "zh", provider_key: str | None = No
         trace.append({
             "kind": "llm", "name": f"{provider_key}:{model}", "args": {},
             "ok": True, "latency_ms": ms,
-            "summary": (f"请求 {len(calls)} 次工具调用" if calls else "输出最终结论"),
+            "summary": ((f"请求 {len(calls)} 次工具调用" if calls else "输出最终结论") if zh
+                        else (f"requested {len(calls)} tool call(s)" if calls
+                              else "returned final assessment")),
             "error": None,
         })
 
@@ -310,11 +313,13 @@ def run_agent(user_message: str, lang: str = "zh", provider_key: str | None = No
                 "kind": "model_tool", "name": call.function.name, "args": args,
                 "ok": not failed, "latency_ms": tool_ms,
                 "summary": (result[:120] + "…") if len(result) > 120 else result,
-                "error": None if not failed else "工具未返回可用信息",
+                "error": None if not failed else ("工具未返回可用信息" if zh
+                                                 else "tool returned no usable result"),
             })
             messages.append({"role": "tool", "tool_call_id": call.id, "content": result})
 
     trace.append({"kind": "llm", "name": "loop_guard", "args": {}, "ok": False, "latency_ms": 0,
-                  "summary": "", "error": f"超过最大迭代次数 {MAX_ITERATIONS}，未能收敛"})
+                  "summary": "", "error": (f"超过最大迭代次数 {MAX_ITERATIONS}，未能收敛" if zh
+                                          else f"no final answer within {MAX_ITERATIONS} rounds")})
     meta["total_ms"] = int((time.perf_counter() - t_start) * 1000)
     return None, trace, meta

@@ -24,6 +24,7 @@ import datetime
 import json
 import math
 import os
+import re
 import time
 import urllib.parse
 from dataclasses import dataclass, field
@@ -1004,14 +1005,44 @@ def _timed_parallel(jobs: list[tuple]) -> list[tuple]:
         return list(ex.map(lambda j: _timed(j[0], *j[1:]), jobs))
 
 
+# 取数失败的原因在内部统一用中文记录（evals 与 missing 列表都读它）。
+# 英文界面的执行轨迹只在展示前翻译一次，不改内部记录。
+_ERROR_EN = [
+    (r"^地名无法解析为坐标$", "could not resolve the place name to coordinates"),
+    (r"^该地点不在已收录的民航机场清单内$", "not in the list of covered civil airports"),
+    (r"^该地点（(.+?)）(\d+) 公里内没有可用的海域数据$", r"no marine data within \2 km of (\1)"),
+    (r"^date_out_of_range:(\S+) 不在预报范围 (.*)$", r"date_out_of_range:\1 is outside the forecast range \2"),
+    (r"^beyond_taf_horizon:(\S+) 超出该机场 TAF 的预报范围$", r"beyond_taf_horizon:\1 is beyond this airport's TAF horizon"),
+    (r"^(\S+) 无可用的 METAR/TAF 数据$", r"\1: no METAR/TAF available"),
+    (r"^not_sea:.*$", "not_sea: point is not at sea (land, or outside model coverage)"),
+    (r"^(.+?) 请求失败: (.*)$", r"\1 request failed: \2"),
+    (r"^(.+?) 返回错误: (.*)$", r"\1 returned an error: \2"),
+]
+
+
+def _error_en(msg: str | None) -> str | None:
+    if not msg:
+        return msg
+    for pat, repl in _ERROR_EN:
+        if re.match(pat, msg):
+            return re.sub(pat, repl, msg)
+    return msg
+
+
 def build_evidence(
     origin: str,
     destination: str,
     target_date: str,
     transport: str,
     vessel_type: str | None = None,
+    lang: str = "zh",
 ) -> EvidenceBundle:
-    """确定性预取两端（船舶再加航线中点）的必需证据，并判定充分性。不调用 LLM。"""
+    """确定性预取两端（船舶再加航线中点）的必需证据，并判定充分性。不调用 LLM。
+
+    lang 只影响展示用的文字（航线采样点的名字、trace 摘要、航线备注），不影响取数与判定。
+    """
+    zh = lang != "en"
+    midpoint_key = MIDPOINT_KEY_ZH if zh else MIDPOINT_KEY_EN
     bundle = EvidenceBundle(target_date=target_date, transport=transport, vessel_type=vessel_type)
     need_marine = transport == "ship"
     mode = "marine" if need_marine else "aviation"
@@ -1028,13 +1059,18 @@ def build_evidence(
             bundle.missing.append(miss)
             entry["errors"].append(miss.detail)
             bundle.trace.append(TraceStep(
-                "resolve_location", {"name": name, "mode": mode}, False, 0, error=miss.detail))
+                "resolve_location", {"name": name, "mode": mode}, False, 0,
+                error=miss.detail if zh else _error_en(miss.detail)))
             continue
 
         entry["resolved"] = resolved
+        # 白名单里的规范名是中文；英文界面下改显示用户输入的名字（英文别名），不混排中文
+        shown = resolved["matched_name"]
+        if not zh and any("\u4e00" <= c <= "\u9fff" for c in shown):
+            shown = name
         bundle.trace.append(TraceStep(
             "resolve_location", {"name": name, "mode": mode}, True, 0,
-            summary=f"{resolved['matched_name']} via {resolved['source']}"))
+            summary=f"{shown} via {resolved['source']}"))
         # 白名单命中时用坐标查大气，保证与海洋数据同点位
         query = (name if resolved.get("icao")
                  else (f"{resolved['lat']},{resolved['lon']}"
@@ -1057,7 +1093,7 @@ def build_evidence(
             samples = route_sample_points(a["lat"], a["lon"], b["lat"], b["lon"])
             bundle.route = {"distance_km": round(dist_km, 1), "sampled": len(samples)}
             for idx, (lat, lon) in enumerate(samples, 1):
-                key = MIDPOINT_KEY if len(samples) == 1 else f"{MIDPOINT_KEY} {idx}/{len(samples)}"
+                key = midpoint_key if len(samples) == 1 else f"{midpoint_key} {idx}/{len(samples)}"
                 mid: dict = {"name": key, "role": "midpoint", "errors": [],
                              "resolved": {"lat": lat, "lon": lon, "source": "derived",
                                           "matched_name": key}}
@@ -1093,7 +1129,8 @@ def build_evidence(
             bundle.trace.append(TraceStep(
                 "get_weather_forecast", args, data is not None, ms,
                 summary=(f"wind {data['max_wind_speed_ms']} m/s, "
-                         f"gust {data['max_gust_ms']} m/s" if data else ""), error=err))
+                         f"gust {data['max_gust_ms']} m/s" if data else ""),
+                error=err if zh else _error_en(err)))
             if data is None:
                 entry["errors"].append(err or "")
                 if required:
@@ -1126,9 +1163,10 @@ def build_evidence(
                         and (err or "").startswith("not_sea:"))
             bundle.trace.append(TraceStep(
                 "get_marine_forecast", args, data is not None or filtered, ms,
-                summary=("该点位于陆地，已从航路采样中剔除" if filtered
+                summary=(("该点位于陆地，已从航路采样中剔除" if zh
+                          else "point is on land; dropped from route sampling") if filtered
                          else f"wave max {data['max_wave_height_m']} m" if data else ""),
-                error=None if filtered else err))
+                error=None if filtered else (err if zh else _error_en(err))))
             if data is None:
                 entry["errors"].append(err or "")
                 if required:
@@ -1149,7 +1187,8 @@ def build_evidence(
             bundle.trace.append(TraceStep(
                 "check_route_sigmets", {"date": target_date}, True,
                 int((time.perf_counter() - t0) * 1000),
-                summary=f"航路穿越 {len(hits)} 条生效中的重要气象情报"))
+                summary=(f"航路穿越 {len(hits)} 条生效中的重要气象情报" if zh
+                         else f"route crosses {len(hits)} active SIGMET(s)")))
 
     # 航路采样点必须拿到【海洋】数据才算数 —— 取不到就说明它落在陆地上，
     # 不在真实航路上，不能拿它的地面天气去当航路气象。
@@ -1166,10 +1205,14 @@ def build_evidence(
         if on_water == 0 and bundle.route["distance_km"] > 300:
             bundle.route["note"] = (
                 "航线较长，两港之间的大圆路径穿越陆地，无法沿航路采样。"
-                "以下结论只基于两端港口的气象条件，未覆盖航程中段。")
+                "以下结论只基于两端港口的气象条件，未覆盖航程中段。" if zh else
+                "Long route: the great-circle path between the two ports crosses land, so it "
+                "cannot be sampled en route. The verdict below is based on the two ports only "
+                "and does not cover the middle of the voyage.")
             bundle.quality = "partial"
 
     return bundle
 
 
-MIDPOINT_KEY = "航线中点"
+MIDPOINT_KEY_ZH = "航线中点"
+MIDPOINT_KEY_EN = "Route midpoint"

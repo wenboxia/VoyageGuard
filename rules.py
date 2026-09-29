@@ -26,6 +26,10 @@ UNKNOWN = "UNKNOWN"
 VALID_LEVELS = set(LEVELS) | {UNKNOWN}
 
 
+# 规则引擎自己产出的地点名（不来自用户输入），英文界面需要翻译
+LOCATION_EN = {"航路": "En route"}
+
+
 @dataclass
 class Trigger:
     """一条被触发的官方判据。cls 决定了允许用什么措辞。"""
@@ -43,7 +47,9 @@ class Trigger:
         src = S.SOURCES.get(self.source_key)
         return {
             "code": self.code, "cls": self.cls, "level": self.level,
-            "location": self.location, "value": self.value, "unit": self.unit,
+            "location": (self.location if lang != "en"
+                         else LOCATION_EN.get(self.location, self.location)),
+            "value": self.value, "unit": self.unit,
             "text": self.text_zh if lang != "en" else self.text_en,
             "source": (src.name_zh if lang != "en" else src.name_en) if src else "",
             "source_url": src.url if src else "",
