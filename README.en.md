@@ -117,14 +117,3 @@ The detailed documents are in Chinese.
 | [Knowledge base](docs/knowledge-base.md) | Every threshold and its source (generated from code) |
 | [Evaluation](docs/evaluation.md) | Four-layer design, list of checks, full figures and charts |
 | [Known limitations](docs/limitations.md) | Capability limits, criteria limits, evaluation-method limits, engineering trade-offs |
-
-## Related projects
-
-| Project | Description |
-|---|---|
-| [**Liangyi**](https://github.com/wenboxia/liangyi) | Cross-vendor multi-agent workflow for refining product ideas · [Live demo](https://liangyi-five.vercel.app) |
-| [**AIRadar**](https://github.com/wenboxia/airadar) | Daily scheduled AI industry intelligence workflow · [View](https://wenboxia.github.io/airadar/) |
-
-## Author
-
-Wenbo Xia · AI Product Manager · [MIT License](LICENSE)

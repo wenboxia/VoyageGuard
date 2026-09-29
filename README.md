@@ -115,14 +115,3 @@ python -m evals.l3_sufficiency                   # 确定性断言，无需 API 
 | [知识库](docs/knowledge-base.md) | 全部阈值与出处（由代码生成） |
 | [评测](docs/evaluation.md) | 四层设计、断言清单、完整数字与图表 |
 | [已知边界](docs/limitations.md) | 能力边界、判据局限、评测方法局限、工程取舍 |
-
-## 相关项目
-
-| 项目 | 简介 |
-|---|---|
-| [**两仪 Liangyi**](https://github.com/wenboxia/liangyi) | 跨厂商多 Agent 产品想法优化工作流 · [在线体验](https://liangyi-five.vercel.app) |
-| [**AIRadar**](https://github.com/wenboxia/airadar) | 每日定时运行的 AI 行业情报工作流 · [在线查看](https://wenboxia.github.io/airadar/) |
-
-## 作者
-
-夏文博（Wenbo Xia）· AI 产品经理 · [MIT License](LICENSE)
