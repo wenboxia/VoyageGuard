@@ -4,11 +4,11 @@ tools/gen_graphics.py — 把 tools/graphics/ 下的 HTML 渲染成 README 用�
 用法：python -m tools.gen_graphics            # 全部
       python -m tools.gen_graphics architecture.png   # 只渲染指定的
 
-  banner.png             README 横幅，1600×380，2x 输出（与同作者另外两个仓库的横幅同尺寸）
+  banner.png / .en.png   README 横幅（中 / 英），1600×380，2x 输出（与同作者另外两个仓库的横幅同尺寸）
   architecture.png       架构图（中文），1360 宽排版，输出 3200 宽
   architecture.en.png    架构图（英文），同一份 HTML 加 ?lang=en（英文更长，画布更高）
 
-依赖本机 Google Chrome，不进 requirements.txt——只在本地重新出图时需要。
+依赖本机 Google Chrome 和 pillow（输出量化成调色板 PNG），都不进 requirements.txt——只在本地重新出图时需要。
 字体（Outfit / IBM Plex Mono）从 Google Fonts 加载，与线上页面一致，所以渲染时需要联网。
 横幅右侧的四个数字取自 docs/evaluation.md，改了评测数字要同步改 graphics/banner.html。
 """
@@ -16,6 +16,8 @@ tools/gen_graphics.py — 把 tools/graphics/ 下的 HTML 渲染成 README 用�
 import pathlib
 import subprocess
 import sys
+
+from tools.gen_screenshots import quantize   # 深色图量化成调色板 PNG，几乎无损、体积小很多
 
 ROOT = pathlib.Path(__file__).resolve().parent.parent
 CHROME = "/Applications/Google Chrome.app/Contents/MacOS/Google Chrome"
@@ -27,6 +29,7 @@ OUT = ROOT / "docs/images"
 # 排版宽度越窄，缩放后的字越大（1600 排版时正文只剩 8px 左右，看不清）。
 TARGETS = [
     ("banner.png", "banner.html", "", 1600, 380),
+    ("banner.en.png", "banner.html", "?lang=en", 1600, 380),
     ("architecture.png", "architecture.html", "?lang=zh", 1360, 632),
     ("architecture.en.png", "architecture.html", "?lang=en", 1360, 624),
 ]
@@ -41,6 +44,7 @@ def render(name: str, src: str, query: str, w: int, h: int) -> None:
         "--default-background-color=060a12ff", "--virtual-time-budget=8000",
         f"--screenshot={out}", f"file://{SRC / src}{query}",
     ], check=True, capture_output=True)
+    quantize(out)
     print(f"  {out.relative_to(ROOT)}  {out.stat().st_size // 1024} KB")
 
 

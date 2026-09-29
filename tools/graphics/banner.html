@@ -35,6 +35,7 @@
   .en { font: 17px "SF Mono", Menlo, monospace; color: var(--muted); margin-top: 12px; }
   .flow { display: flex; align-items: center; gap: 10px; margin-top: 26px; font-size: 17px; color: var(--muted); }
   .flow span.s {
+    white-space: nowrap;
     padding: 6px 12px; border-radius: 7px; border: 1px solid var(--border); background: var(--surface); color: var(--text);
   }
   .flow span.s.rule { border-color: rgba(0,230,118,0.5); color: var(--green); }
@@ -58,18 +59,30 @@
     <div>
       <div class="tag">TRAVEL RISK AGENT</div>
       <h1>VoyageGuard</h1>
-      <h2>出行气象决策 Agent</h2>
-      <div class="en">Weather-risk decision agent for flights &amp; ferries</div>
+      <h2 data-t="h2">出行气象决策 Agent</h2>
+      <div class="en" data-t="sub">Weather-risk decision agent for flights &amp; ferries</div>
       <div class="flow">
-        <span class="s">代码先取证据</span>→<span class="s">模型解释</span>→<span class="s rule">规则引擎判定</span>→<span class="s out">越线 / 证据不足</span>
+        <span class="s" data-t="f1">代码先取证据</span>→<span class="s" data-t="f2">模型研判</span>→<span class="s rule" data-t="f3">规则引擎判定</span>→<span class="s out" data-t="f4">越线 / 证据不足</span>
       </div>
     </div>
   </div>
   <div class="cards">
-    <div class="card"><div class="num">89.7<small>→</small>100%</div><div class="lbl">生产模型经规则引擎<br>安全网后的准确率</div></div>
-    <div class="card"><div class="num amber">21<small> / 24</small></div><div class="lbl">数据缺失时模型<br>仍强行下结论</div></div>
-    <div class="card"><div class="num green">0%</div><div class="lbl">25 条真实停航 / 通航<br>记录上的误报率</div></div>
-    <div class="card"><div class="num slate">4</div><div class="lbl">种结论，含第四态<br>「证据不足」</div></div>
+    <div class="card"><div class="num">89.7<small>→</small>100%</div><div class="lbl" data-t="c1">生产模型经规则引擎<br>安全网后的准确率</div></div>
+    <div class="card"><div class="num amber">21<small> / 24</small></div><div class="lbl" data-t="c2">数据缺失时模型<br>仍强行下结论</div></div>
+    <div class="card"><div class="num green">0%</div><div class="lbl" data-t="c3">25 条真实停航 / 通航<br>记录上的误报率</div></div>
+    <div class="card"><div class="num slate">4</div><div class="lbl" data-t="c4">种结论，含第四态<br>「证据不足」</div></div>
   </div>
+<script>
+// ?lang=en 渲染英文横幅（banner.en.png），默认中文
+if (new URLSearchParams(location.search).get("lang") === "en") {
+  const EN = {
+    h2: "Weather-Risk Decision Agent", sub: "For flights &amp; ferries",
+    f1: "Code fetches data", f2: "Model assesses", f3: "Rules decide", f4: "Crossed / unknown",
+    c1: "Production model accuracy<br>before → after rule engine", c2: "Times models still gave<br>a verdict on missing data",
+    c3: "False alarms on 25 real<br>suspension / service days", c4: "Verdicts, including<br>&ldquo;insufficient evidence&rdquo;",
+  };
+  document.querySelectorAll("[data-t]").forEach(el => { el.innerHTML = EN[el.dataset.t]; });
+}
+</script>
 </body>
 </html>
