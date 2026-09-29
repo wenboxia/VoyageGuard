@@ -102,7 +102,8 @@
 
 ```bash
 pip install -r requirements.txt
-echo "DASHSCOPE_API_KEY=your_key_here" > .env   # 默认 Qwen；换模型设 VOYAGEGUARD_PROVIDER 及对应 Key
+# 默认 Qwen；换模型设 VOYAGEGUARD_PROVIDER 及对应 Key
+echo "DASHSCOPE_API_KEY=your_key_here" > .env
 uvicorn app:app --reload                         # 打开 http://localhost:8000
 python -m evals.l3_sufficiency                   # 确定性断言，无需 API Key
 ```

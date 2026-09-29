@@ -102,7 +102,8 @@ Each request passes through three stages:
 
 ```bash
 pip install -r requirements.txt
-echo "DASHSCOPE_API_KEY=your_key_here" > .env   # Qwen by default; set VOYAGEGUARD_PROVIDER and its key to switch
+# Qwen by default; set VOYAGEGUARD_PROVIDER and its key to switch models
+echo "DASHSCOPE_API_KEY=your_key_here" > .env
 uvicorn app:app --reload                         # open http://localhost:8000
 python -m evals.l3_sufficiency                   # deterministic checks, no API key needed
 ```
