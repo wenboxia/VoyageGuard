@@ -4,7 +4,7 @@
 
 <p align="center">
   <a href="https://voyageguard-two.vercel.app"><strong>Live demo</strong></a> &middot;
-  <a href="#how-to-use"><strong>How to use</strong></a> &middot;
+  <a href="#usage"><strong>Usage</strong></a> &middot;
   <a href="#architecture"><strong>Architecture</strong></a> &middot;
   <a href="#evaluation"><strong>Evaluation</strong></a> &middot;
   <a href="#documentation"><strong>Docs</strong></a> &middot;
@@ -24,303 +24,253 @@
 
 **You've booked a flight or a ferry, and a gale is coming. Do you still go?**
 
-VoyageGuard checks live weather data against officially published warning and navigation-ban thresholds, and tells you
-**whether any official line has been crossed today** — citing the source for each one. When the evidence isn't there,
-it says so ("insufficient evidence") instead of guessing. Flights and ferries, Chinese and English UI.
+VoyageGuard checks live weather data against officially published warning criteria and navigation restrictions, determines
+whether any official threshold is crossed on the day of travel, and cites the source for every finding. When the required
+evidence is incomplete, it returns "insufficient evidence" instead of a risk level. It covers flights and ferries, with a Chinese and an English UI.
 
 <table>
-  <tr><td width="96"><b>Problem</b></td><td>Airline apps only report flights already cancelled, weather apps give raw numbers, official notices are late and scattered. Nobody tells you whether a number crosses a line</td></tr>
-  <tr><td width="96"><b>Approach</b></td><td>Code fetches the required evidence first → the model explains and advises → a rule engine outside the model loop makes the final call</td></tr>
-  <tr><td width="96"><b>Output</b></td><td>A risk level plus sourced triggers (regulation / official warning / this tool's judgement); a fourth verdict, <code>UNKNOWN</code>, when evidence is insufficient</td></tr>
-  <tr><td width="96"><b>Shape</b></td><td>An agent: in a ReAct loop the model decides whether and which supplementary tool to call (2 tools, up to 5 rounds) — but fenced in: required evidence is fetched by code first, and the verdict is made outside the loop. Terminology follows Anthropic's <a href="https://www.anthropic.com/engineering/building-effective-agents"><i>Building effective agents</i></a></td></tr>
+  <tr><td width="96"><b>Problem</b></td><td>Airline and ferry apps report only services already cancelled, weather apps provide raw numbers, and official notices are delayed and scattered. No layer maps weather figures onto official thresholds</td></tr>
+  <tr><td width="96"><b>Approach</b></td><td>Code pre-fetches the required evidence → the model explains and advises → a rule engine outside the model loop makes the final determination</td></tr>
+  <tr><td width="96"><b>Output</b></td><td>A risk level plus sourced triggers (regulation / official warning / product rule); a fourth verdict, <code>UNKNOWN</code>, when evidence is insufficient</td></tr>
+  <tr><td width="96"><b>Mechanism</b></td><td>In a ReAct loop the model calls 2 supplementary-evidence tools as needed (up to 5 rounds); the evidence required for the verdict is pre-fetched by code, and the final verdict comes from a rule engine outside the loop</td></tr>
   <tr><td width="96"><b>Evaluation</b></td><td>Four layers: L1 39 cases across 4 models · L2 real network + 3 fault injections · L3 187 zero-token checks · L4 25 real suspension / normal-service records</td></tr>
 </table>
 
 <p align="center">
-  <img src="docs/images/hero.en.png" alt="Live result page in the English UI: Yantai to Dalian by ferry" width="880">
-  <br><sub>Live result in the English UI (Yantai → Dalian by ferry, forecast for 2026-09-30): verdict and four sourced triggers on the left, alternatives and the real execution trace on the right. The route-midpoint label (航线中点) is not translated yet</sub>
+  <img src="docs/images/hero.en.png" alt="Real result page in the English UI: Yantai to Dalian by ferry" width="880">
+  <br><sub>A real run (Yantai → Dalian by ferry, forecast for 2026-09-30), the same route as the Chinese README: the left column shows the verdict, five sourced triggers (including the route midpoint) and the weather overview; the right column shows the risk analysis, alternatives and the real execution trace</sub>
 </p>
 
 ## Contents
 
-- [How to use](#how-to-use)
-- [The problem](#the-problem)
-- [Requirements: decide what the product may say](#requirements-decide-what-the-product-may-say)
+- [Usage](#usage)
+- [Problem and context](#problem-and-context)
+- [Requirements and product scope](#requirements-and-product-scope)
 - [Architecture](#architecture)
-- [What's inside](#whats-inside)
+- [Agent design](#agent-design)
 - [Key design decisions](#key-design-decisions)
 - [Evaluation](#evaluation) · [Results](#results)
-- [Known limits](#known-limits)
+- [Known limitations](#known-limitations)
 - [Quick start](#quick-start)
 - [Documentation](#documentation)
-- [Other projects by the author](#other-projects-by-the-author)
+- [Related projects](#related-projects)
 
-## How to use
+## Usage
 
-Open **[voyageguard-two.vercel.app](https://voyageguard-two.vercel.app)** — no sign-in. Switch the UI to English with the **EN** button in the top-right corner.
+Open **[voyageguard-two.vercel.app](https://voyageguard-two.vercel.app)**; no sign-in is required:
 
-|        | Step | Notes |
+|        | Step | Details |
 | ------ | --- | --- |
-| **01** | Enter origin and destination | Or pick one of the three presets under "Quick demo" |
-| **02** | Choose date and mode | Today plus two days. For ferries, pick a vessel type — "not sure" applies the stricter small-craft standard |
-| **03** | Read the verdict | Risk level + which official lines were crossed (sources are clickable); expand "Agent Execution Trace" to see every real call |
+| **01** | Enter origin and destination | Or use one of the three presets under "Quick Demo" |
+| **02** | Choose a date and mode of transport | Today plus two days. For ferries, choose a vessel type; if unspecified, the stricter small-craft standard applies |
+| **03** | Read the verdict | Risk level and the official thresholds crossed (sources are linked); expand "Agent Execution Trace" to see each real call |
 
-Inputs worth trying:
+Example inputs:
 
-| Input | What you'll see |
+| Input | Expected result |
 |---|---|
-| `Yantai → Dalian`, ferry | A **route midpoint** in the evidence — sampling only the ports would miss real suspensions |
-| `Beijing → Xi'an`, **ferry** | **Insufficient evidence**, and **no travel recommendation** — the core claim of this project |
-| `Shanghai → Antarctica`, flight | An abstention, not "low risk, go ahead" |
-| Expand the **Agent Execution Trace** | Real tool names, arguments and latency; deterministic prefetch and model-initiated calls are labelled separately |
+| `Yantai → Dalian` by ship | The evidence includes a **route midpoint**; sampling only the ports would miss real suspensions |
+| `Beijing → Xi'an` by **ship** | **Insufficient evidence**, and **no travel recommendation is shown** |
+| `Shanghai → Antarctica` by plane | Abstains rather than returning "low risk, OK to travel" |
+| Expand **Agent Execution Trace** | Real tool names, arguments and latencies; deterministic pre-fetch and model-initiated calls are labelled separately |
 
-The top-right corner also links back to this repository.
+The language toggle (form page only) and a link to this repository are in the top-right corner.
 
-## The problem
+## Problem and context
 
-Deciding whether to travel in a gale means stitching the answer together yourself, and each channel is missing a piece:
+Deciding whether to travel in strong winds currently requires combining several sources, each of which covers only part of the question:
 
-| Channel | What's missing |
+| Source | Limitation |
 |---|---|
-| Airline / ferry apps | They only tell you what has **already** been cancelled. No help a day ahead |
-| Weather apps | They say "wind 14 m/s", but not what that number **means** |
-| Official notices | Authoritative, but late, and scattered across local maritime bureaus and airline accounts |
+| Airline / ferry apps | Report only services **already** cancelled; they cannot support a decision a day in advance |
+| Weather apps | Provide figures such as "wind 14 m/s" without explaining **what they mean** |
+| Official notices | Authoritative, but delayed and spread across local maritime authorities and carrier channels |
 
-**The missing layer is translating weather numbers into "has an official line been crossed?"** That layer isn't hard to
-build; the hard part is making it hold up. It's safety-related, and the costs are asymmetric: failing to warn is far worse than warning once too often.
+**The missing layer is the one in between: mapping weather figures onto official thresholds.**
+This is a safety-related decision, and the costs of error are asymmetric: failing to warn when a warning is due is far more serious than one warning too many.
 
-## Requirements: decide what the product may say
+## Requirements and product scope
 
-Before building, one question: **is this product entitled to answer "will this ferry be suspended?"**
+The first question was: **is there a basis for answering "will this ferry be suspended"?**
 
-No. The Ministry of Transport's [reply to an NPC proposal](https://xxgk.mot.gov.cn/jigou/haishi/202006/t20200630_3319352.html)
-states that a vessel's wind resistance is calculated from **wind pressure** and does **not** map onto the Beaufort scale —
-which is why officials **deliberately don't print a wind rating on ship certificates**. The real decision chain is:
-each vessel's stability limits → the operator's judgement → the maritime authority may order a halt → local blanket rules on top.
+There is not. The Ministry of Transport's [reply to an NPC proposal](https://xxgk.mot.gov.cn/jigou/haishi/202006/t20200630_3319352.html)
+states that a vessel's wind resistance is calculated from **wind pressure** and has **no correspondence** with the Beaufort scale,
+which is why the authorities **do not record a wind rating on vessel certificates**. The actual decision chain is: each vessel's own stability limits →
+the operator's judgement → orders from the maritime authority → blanket local rules.
 
-**So the product says exactly one thing: has an officially published warning or navigation-ban line been crossed today?**
-Whether the service actually runs is the carrier's and the authority's call.
+**The product therefore states one thing only: whether an officially published warning or navigation-restriction threshold is crossed on the day of travel.**
+Whether a service is suspended is decided by the carrier and the authorities.
 
-That single decision drives three designs:
+This scope determines three design choices:
 
-| Position | Design consequence |
+| Scope | Design |
 |---|---|
-| State crossings, don't predict suspensions | The output is a **list of sourced triggers**, each marked as regulation or warning standard; medium / high verdicts always end with "follow official notices" |
-| Whether a line is crossed is a fact, not an opinion | **The verdict belongs to the rule engine**, not the model |
-| No basis, no verdict | A fourth verdict, **`UNKNOWN` (insufficient evidence)** — also decided outside the model |
+| State threshold crossings; do not predict suspensions | The output is a **list of sourced triggers**, each marked as a regulation or a warning criterion; MEDIUM / HIGH verdicts always append "follow official notices" |
+| Whether a threshold is crossed is a matter of fact, not opinion | **The verdict belongs to the rule engine**, not the model |
+| No verdict without a basis | A fourth verdict, **`UNKNOWN` (insufficient evidence)**, also decided outside the model |
 
-The third one shows the difference best — "insufficient evidence" isn't a disclaimer, it's **a different kind of output**:
+The third choice is a distinct output, not a disclaimer attached to a verdict:
 
 <p align="center">
-  <img src="docs/images/abstain.en.png" alt="Insufficient evidence: Beijing to Xi'an by ferry" width="880">
-  <br><sub><code>Beijing → Xi'an</code> by ferry: no risk level, no "go" badge; <code>abstention_gate</code> in the trace shows the model was never called</sub>
+  <img src="docs/images/abstain.en.png" alt="Insufficient evidence: Beijing to Xi'an by ship" width="880">
+  <br><sub><code>Beijing → Xi'an</code> by ship: no risk level and no travel recommendation; the <code>abstention_gate</code> step in the trace shows that the model was not called for this request</sub>
 </p>
-
-**Deciding what AI should and shouldn't do is the central product decision here.**
 
 ## Architecture
 
-```mermaid
-flowchart TD
-    A["User input<br/>origin · destination · date · mode"] --> B
+The core product decision is which steps go to the model and which are handled by deterministic code. Each request passes through three stages:
 
-    subgraph S1["① Deterministic evidence pipeline — no model"]
-        B["Resolve coordinates<br/>whitelist → name check → sea-area check"] --> C["Fetch required evidence<br/>wind / gust / visibility / wave height"]
-        C --> D{"Enough evidence?"}
-    end
+<p align="center">
+  <img src="docs/images/architecture.en.png" alt="Architecture: deterministic evidence pipeline → model ReAct loop → rule-engine verifier; the model is skipped when evidence is insufficient" width="880">
+</p>
 
-    D -->|no| G
-    D -->|yes| E
-
-    subgraph S2["② Model — explains, does not decide"]
-        E["ReAct loop<br/>may look up warnings or a third location<br/>writes plain-language reasoning and alternatives"]
-    end
-
-    E --> G
-
-    subgraph S3["③ Rule-engine verifier — owns the final verdict"]
-        G["insufficient evidence → UNKNOWN<br/>line crossed but model said low → escalate<br/>model said HIGH without support → downgrade"]
-    end
-
-    G --> H["Verdict + sourced triggers + real execution trace"]
-
-    style S1 fill:#0d2b33,stroke:#00c8e8,color:#e8edf5
-    style S2 fill:#2b2416,stroke:#f0b429,color:#e8edf5
-    style S3 fill:#0d2b1c,stroke:#00e676,color:#e8edf5
-```
-
-| | Who does it | Who decides |
+| Stage | Performed by | Holds the decision |
 |---|---|---|
-| Evidence the safety verdict depends on | `evidence.py`, deterministic prefetch | Not the model |
-| Explanation, advice, weighing multiple factors | The model | Model's discretion |
-| Final risk level and trigger list | `rules.py`, rule engine | Not the model |
+| Evidence required for the safety verdict | `evidence.py`, deterministic pre-fetch | No model involved |
+| Explanation, advice, multi-factor trade-offs | The model | Model discretion |
+| Final risk level and trigger list | `rules.py`, rule engine | No model involved |
 
-**Core principle: fetching safety-critical evidence and judging red lines never depend on the model's discretion.**
-These boundaries are enforced in code, not by prompt. Details in [docs/architecture.md](docs/architecture.md) (Chinese).
+The boundaries between stages are enforced by the code structure, not by prompt instructions. See [docs/architecture.md](docs/architecture.md) for the detailed design (in Chinese).
 
-## What's inside
+## Agent design
 
-**Only what's actually there.** Every row points to code.
+The table below lists the mechanisms the system uses and where they are implemented.
 
-| Capability | In this project | Where |
+| Mechanism | Implementation | Location |
 |---|---|---|
-| Agent loop / ReAct | The model can call tools over several rounds for supplementary evidence, capped at 5 | `agent.py` |
-| Tool use | OpenAI-compatible function calling, 2 supplementary-evidence tools | `agent.TOOLS` |
-| **Evidence prefetch & structured injection** | Data the verdict depends on is fetched **before** the model runs and injected as structured JSON | `evidence.py` → `build_user_message` |
-| **Rule-engine verifier** | Sits **outside** the model loop and owns the final verdict | `rules.py` |
-| **Abstention** | A fourth state, `UNKNOWN`, also decided by the rule engine | `rules.evaluate` |
-| Observability / provenance | Every value carries `source` + `fetched_at`; the UI shows the real execution trace | `evidence.TraceStep` |
-| Graceful degradation | Model down / timeout / unparseable output → `rule_only` verdict | `agent` + `rules` |
-| Model-agnostic harness | 4 providers switched by env var, chosen by the L1 bake-off | `providers.py` |
-| Structured output contract | JSON schema plus a fallback path when parsing fails | `parse_agent_output` |
-| **Eval as a product function** | Four layers; L4 uses real-world labels rather than annotation | `evals/` |
+| ReAct loop | The model may call tools over multiple rounds to add evidence, up to 5 rounds | `agent.run_agent` |
+| Tool use | OpenAI-compatible function calling; 2 supplementary-evidence tools: warning search and third-location weather | `agent.TOOLS` |
+| Evidence pre-fetch and structured injection | Data required for the safety verdict is fetched **before** the model is called and injected into the user message as structured JSON | `evidence.build_evidence` → `agent.build_user_message` |
+| Out-of-loop verifier | The rule engine sits **outside** the model loop and holds the final verdict | `rules.evaluate` |
+| Abstention | A fourth verdict, `UNKNOWN`; whether to abstain is decided by the rule engine from evidence sufficiency, not by the model | `rules.evaluate` |
+| Execution trace and provenance | Every value carries `source` and `fetched_at`; the UI shows the real execution trace, separating deterministic steps from model-initiated calls | `evidence.TraceStep` |
+| Graceful degradation | If the model call fails, times out or returns unparseable output, the rule engine issues the verdict on its own (`rule_only`) | `agent` + `rules` |
+| Model selection | Four providers switchable by environment variable; the production model was selected from the L1 comparison | `providers.py` |
 
-> The four bold rows are the point; the rest is standard. "Evidence prefetch & structured injection" is deliberately
-> not called context engineering — that term usually means memory, compaction and context-window management, none of which are here.
+**Mechanisms not adopted**
 
-**Deliberately left out, and why**
-
-| Not built | Why |
+| Mechanism | Reason |
 |---|---|
-| Memory / compaction | A single-turn decision query: fill the form, get a verdict. No long-running task, no state across turns |
-| Multi-agent / subagents | The task is "fetch two or three data points → compare to thresholds → decide". Splitting it only adds coordination overhead and failure modes |
-| RAG | The criteria are a few hundred characters and fit in the system prompt. Vector retrieval at this size is a net loss |
-| MCP / skills | Two tools, both in-process; no cross-process or third-party tool ecosystem to connect |
-| Multi-step planning | The flow is a fixed three stages; the model doesn't need to plan its own path |
-| SSE streaming | Nicer demo, but it needs an extra adaptation layer on serverless and proxy buffering could stall the live demo |
-| Fine-tuning / RL | The criteria are hard thresholds; they belong in the rule engine, not in the weights |
-
-**This project's answer to "where should AI be used?" is: as little as possible in the safety-critical verdict.**
+| Memory / context compaction | A single-shot decision query with no long-running task and no state to carry across turns |
+| Multi-agent | The task is "fetch data for two or three points → compare with thresholds → conclude"; splitting it would only add coordination overhead and failure points |
+| RAG | The full criteria run to a few hundred words and fit in the system prompt; vector retrieval offers no benefit at this scale |
+| MCP / Skills | Only 2 tools, both in-process; there is no cross-process or third-party tool integration to support |
+| Multi-step planning | The flow is a fixed three-stage pipeline; the model does not need to plan its own execution path |
+| Fine-tuning / RL | The criteria are hard thresholds already implemented in the rule engine; there is nothing for the model to learn |
 
 ## Key design decisions
 
-| Decision | One-line reason |
+| Decision | Basis |
 |---|---|
-| **Required evidence isn't left to the model** | Models are unreliable at abstaining: here they missed 21 of 24 chances when data was missing |
-| **The rule engine owns the verdict** | Crossing a line is a fact: crossed but judged low → escalate; judged high without support → downgrade |
-| **Block queries whose premise is false** | Missing an airport only causes an abstention; admitting a nonexistent one yields "go ahead" — the errors aren't symmetric |
-| **Coverage is part of product quality** | Official data first; fall back and label it when unavailable, instead of refusing to answer |
+| **Required evidence is not left to the model** | Model abstention is unreliable: in this project's tests, models missed 21 of 24 opportunities to abstain |
+| **The verdict belongs to the rule engine** | Whether a threshold is crossed is a matter of fact: crossed but rated low by the model → escalate; rated HIGH without supporting data → downgrade |
+| **Queries with a false premise are stopped** | Missing an airport from the list only causes an abstention; accepting a non-existent waypoint yields "OK to travel". The two errors carry asymmetric costs |
+| **Coverage is part of product quality** | Official data is preferred; when unavailable, the system falls back and labels the data source instead of refusing to answer |
 
 <details>
 <summary><b>Show the reasoning behind each decision</b></summary>
 
 <br>
 
-**1. Required evidence isn't left to the model.** The model may call tools, but wind, visibility and wave height are fetched before the model runs.
+**1. Required evidence is not left to the model.** The model may call tools on its own, but wind speed, visibility and wave height are fetched by code before the model is called.
 The basis is AgentAbstain ([arXiv 2607.10059](https://arxiv.org/abs/2607.10059)): the strongest model scores only **59.5%** on paired abstention tasks,
-and abstention ability is largely unrelated to general capability — a stronger model won't fix it. This project's evaluation
-[reproduces that result](docs/evaluation.md#弃权是模型最不可靠的能力).
+and abstention ability is largely unrelated to general capability, so a stronger model does not solve the problem. This project's evaluation [reproduces the finding](docs/evaluation.md#弃权是模型最不可靠的能力).
 
-**2. The rule engine owns the verdict.** It sits outside the model loop and does three things: insufficient evidence → `UNKNOWN`;
-a hard line crossed while the model said low → escalate; the model said HIGH without structured support → downgrade.
-Which path was taken is exposed in the `decision_source` field.
+**2. The verdict belongs to the rule engine.** The rule engine sits outside the model loop and applies three checks in order of priority: insufficient evidence → `UNKNOWN`;
+a hard threshold crossed but rated low by the model → forced escalation; a HIGH rating without support from the structured indicators → downgrade.
+The path taken is exposed in the `decision_source` field.
 
-**3. Block queries whose premise is false.** Worse than a wrong risk level is a confident answer to a question that doesn't make sense.
-Flights use an airport whitelist — the aviation criteria only need wind and visibility, which exist for any place name, so without it
-"Shanghai → Antarctica" would come back "low risk, go ahead". Place names pass two checks — geocoding is fuzzy: searching `Xian`
-returns `Xián (Spain) / Xianning / Xianyang / Zhuhai` and not Xi'an at all, so a candidate must match the input before the sea-area check.
+**3. Queries with a false premise are stopped.** A confident answer built on a false premise is more dangerous than a wrong risk level.
+The aviation side uses an airport list: the criteria need only wind and visibility, which can be looked up for any place name, so without the list "Shanghai → Antarctica" would return "low risk, OK to travel".
+Place-name resolution has two checks: Geocoding uses fuzzy matching, and a query for `Xian` returns `Xián (Spain) / Xianning / Xianyang / Zhuhai`, none of which is Xi'an.
+Candidate names must therefore match the input first, and are then verified against marine data.
 
-**4. Coverage is part of product quality.** 38 airports publish official METAR/TAF; the rest don't. That doesn't mean refusing to answer —
-of the aviation criteria, only visibility truly needs runway observations; gale warnings are issued for regions, and city surface wind is their input.
-So data sources are tiered: official first, fall back when unavailable, and say which one was used.
+**4. Coverage is part of product quality.** 38 airports publish official METAR/TAF; the others do not. The product does not refuse to answer when official data is missing:
+among the aviation criteria, only visibility genuinely requires runway observations, while gale warnings are issued for regions and city surface wind is their input.
+Data sources are therefore tiered: official data first, a labelled fallback otherwise.
 
 </details>
 
 ## Evaluation
 
-**Treated as a product function, not as testing.**
+Evaluation has four layers, each isolating a different source of error:
 
-| Layer | What it measures | What it isolates | Cost |
+| Layer | What it tests | What it isolates | Cost |
 |---|---|---|---|
-| **L1 reasoning** | LLM judgement on given data (39 cases × 4 models) | Network, data sources, real-world drift | Tokens |
-| **L2 integration** | Whether end-to-end verdicts hold and are self-consistent, incl. 3 fault injections | Nothing — it's meant to be real | Tokens + network |
-| **L3 data sufficiency** | Whether the data that should be there actually is (187 deterministic checks) | No LLM at all | **Zero tokens** |
-| **L4 real-world backtest** | **Whether the thresholds match whether services actually stopped** (25 records) | No LLM at all | **Zero tokens** |
+| **L1 Reasoning** | Quality of the model's judgement on given data (39 cases × 4 models) | Network, data sources, real-world variation | Tokens |
+| **L2 Integration** | Whether the end-to-end verdict holds and is consistent, including 3 fault injections | Nothing (real environment) | Tokens + network |
+| **L3 Data sufficiency** | Whether the required data was actually obtained (187 deterministic checks) | The model plays no part | **Zero tokens** |
+| **L4 Real-world back-test** | **Whether the thresholds match actual suspensions and normal service** (25 records) | The model plays no part | **Zero tokens** |
 
 <details>
-<summary><b>Why one layer isn't enough</b></summary>
+<summary><b>Why the layers are needed</b></summary>
 
 <br>
 
-- L1 mocks all tools, which cleanly isolates reasoning but **hides holes in the data pipeline** — mock data always happens to fit the parser.
-  **L3 covers that at zero token cost** and runs without any API key
-- Pipeline errors have an objective state (fetched / not fetched) that tests can catch; **knowledge-base errors are silent** — get a threshold
-  wrong and every test still passes, because the expected values were written from that same threshold. **L4 checks thresholds against real outcomes**
-  and is the only layer that can reveal gaps in the thresholds themselves
-- **L4 labels need no expert judgement** — whether a service actually ran that day is a published, objective fact
+- L1 mocks every tool, which cleanly isolates reasoning but **hides defects in the data pipeline**: mocked data always fits the parsing logic.
+  **L3 covers this at zero token cost** and runs without any API key
+- Pipeline errors have an objective state (fetched / not fetched) that tests can catch; **knowledge-base errors are silent**: a mistyped threshold
+  leaves every test green, because the expected values were labelled from that same threshold. **L4 checks the thresholds against real-world outcomes** and is the only layer that can reveal a gap in the thresholds themselves
+- **L4 labels require no expert judgement**: whether a service was suspended on a given day is an objective fact published by the authorities and the media
 
 </details>
 
-Full design and check list in [docs/evaluation.md](docs/evaluation.md) (Chinese).
+See [docs/evaluation.md](docs/evaluation.md) for the full design and list of checks (in Chinese).
 
 ### Results
 
-> The evaluation scripts print to the terminal and don't archive results; every number below can be reproduced with the commands
-> in [Quick start](#quick-start). L1 numbers come from a run on 2026-09-01; L4 uses no LLM and a re-run on 2026-09-26 matched exactly.
+> The evaluation scripts print to the terminal and do not save results; every figure below can be reproduced with the commands at the end of this section.
+> L1 figures come from a run on 2026-09-01; L4 uses no model, and a re-run on 2026-09-26 matched item for item.
 
-**L4: thresholds checked against 25 real suspension / normal-service records** (wind reconstructed from the ERA5 archive, waves from Open-Meteo Marine historical data)
+**L4: back-test on 25 real suspension / normal-service records** (wind from the ERA5 reanalysis archive, wave height from Open-Meteo Marine historical data)
 
 <p align="center"><img src="docs/images/eval-l4.en.png" alt="L4 results" width="760"></p>
 
-- **0% false alarms** (none of the 10 normal-service days was judged HIGH) — it never cried wolf on a day the service ran normally
-- **The recall gap is the most useful output**: 7 of the 9 misses are typhoon-related, which points to **a whole missing axis — typhoon warnings**.
-  Carriers suspend service ahead of typhoon warnings, a separate official signal from wind and wave thresholds. The gap is recorded rather than patched with an unsourced threshold
+- **0% false alarms**: none of the 10 normal-service days was rated HIGH
+- **The recall gap identifies a criterion not yet modelled**: 7 of the 9 misses are typhoon-related. Carriers suspend service early on typhoon warnings,
+  an official signal independent of wind force and wave height. The gap is documented and has not been filled with an unsourced threshold
 
-**L1: four-model bake-off**
+**L1: four models compared**
 
 <p align="center"><img src="docs/images/eval-l1.en.png" alt="L1 results" width="760"></p>
 
-Raw accuracy ranges from **56.4% to 89.7%**; with the safety net, **every model reaches 100%**. The finer the criteria, the easier it is for a model
-to slip one level — and the more a deterministic verifier is worth. It puts a 56% model and a 90% model on the same line.
+Raw accuracy ranges from **56.4% to 89.7%**; after the rule-engine check, **every model reaches 100%**. The finer the criteria, the more often a model is off by one level,
+and the more the deterministic verifier matters: it brings a 56% model and a 90% model to the same correct final verdict.
 
-**The number worth remembering: 87.5%.** In 6 cases with missing evidence, the system prompt explicitly said "better to say you don't know than to guess",
-and the relevant JSON fields were plainly `null`. Across four models there were 24 chances to abstain; **21 were missed, and all 21 were judged `LOW`**.
-All 4 of deepseek's errors and all 5 of kimi's were abstention cases — on the 33 cases with data, they made none.
-**All 24 ended up correct, because the abstention decision was never given to the model.**
+**Abstention when data is missing.** In 6 cases the evidence has gaps: the system prompt explicitly says "rather say you don't know than guess",
+and the relevant fields in the evidence JSON are `null`. Across four models there were 24 opportunities to abstain; **21 were missed (87.5%), and all 21 were rated `LOW`**.
+All 4 of deepseek's errors and all 5 of kimi's errors came from abstention cases; on the 33 cases with complete data, neither made an error.
+**Because the abstention decision is not left to the model, all 24 final verdicts were correct.**
 
-## Known limits
+**Reproduce**
 
-For a safety-related tool, stating what it **can't** judge matters as much:
+```bash
+python -m evals.l3_sufficiency    # ~2 minutes, zero tokens, no API key, 187 deterministic checks
+python -m evals.run_all           # L3 → L2 (real network and models, 3 fault injections) → L4 (real-world back-test)
+```
 
-- **Typhoon warnings aren't modelled** — the biggest gap L4 found; recorded rather than patched with an unsourced threshold
-- **Inland rivers and lakes aren't covered** — inland navigation has its own official standard (wind bands, no wave height), incompatible with the maritime criteria
-- **Routes aren't verified to exist** — only that each end is a real port or airport, not that a service runs between them
-- **Three `PROD` rules aren't regulations** — small craft in a blue wave warning, 15 m/s for flights, thunderstorms for flights; each is labelled with its reasoning
-- **Two sources are second-hand** (one news report, one manufacturer figure) — labelled as such rather than presented as official
-- **ERA5 is a reanalysis, not a forecast** — L4 validates whether the thresholds are right, not whether forecasts are good enough
+## Known limitations
 
-Full list in [docs/limitations.md](docs/limitations.md) (Chinese).
+The following are outside the system's scope or subject to known limitations:
+
+- **Typhoon warnings are not modelled**: the main gap identified by L4; documented, not filled with an unsourced threshold
+- **Inland rivers and lakes are not covered**: inland navigation follows a separate official standard (wind-tiered, no wave height) that is not interchangeable with maritime criteria
+- **Route existence is not verified**: only each endpoint is checked as a covered port or airport, not whether a service runs between them
+- **The three `PROD` rules are not regulations**: small craft under a blue sea-wave warning, 15 m/s mean wind for aviation, and aviation thunderstorms are labelled separately with their rationale
+- **Two sources are secondary** (a news report and a manufacturer-manual figure): marked as such where the original could not be obtained
+- **ERA5 is a reanalysis, not a forecast**: L4 validates the thresholds, not forecast accuracy
+
+See [docs/limitations.md](docs/limitations.md) for the full list (in Chinese).
 
 ## Quick start
 
 ```bash
 pip install -r requirements.txt
 echo "DASHSCOPE_API_KEY=your_key_here" > .env
-uvicorn app:app --reload          # then open http://localhost:8000
+uvicorn app:app --reload          # open http://localhost:8000
 ```
 
-Four model providers are supported, switched with `VOYAGEGUARD_PROVIDER` (`qwen` / `deepseek` / `kimi` / `glm`); each model id can be
-overridden with `VOYAGEGUARD_MODEL_<PROVIDER>` without code changes.
-
-**Don't take the numbers on trust — run them:**
-
-```bash
-python -m evals.l3_sufficiency    # ~2 minutes, zero tokens, no API key, 187 deterministic checks
-python -m evals.run_all           # L3 → L2 (real network + real models, 3 fault injections) → L4 (real-world records)
-```
-
-<details>
-<summary><b>Deployment and stack</b></summary>
-
-<br>
-
-**Deployment**: Vercel's Python framework preset picks up the top-level `app` in `app.py` as the ASGI entry point — no `api/` directory needed.
-Pushing to GitHub deploys automatically; environment variables live in the Vercel project settings. The `Dockerfile` is kept for self-hosting (port 7860).
-
-**Stack**: FastAPI · OpenAI-compatible SDK (Qwen / DeepSeek / Kimi / GLM) · aviationweather.gov (METAR / TAF / SIGMET) ·
-wttr.in · Open-Meteo Marine / Geocoding / ERA5 · DDGS · single-file frontend (no build step) · Vercel
-
-</details>
+Qwen is the default; to switch models, set `VOYAGEGUARD_PROVIDER` (`qwen` / `deepseek` / `kimi` / `glm`) and the corresponding API key.
 
 ## Documentation
 
@@ -328,21 +278,19 @@ The detailed documents are in Chinese.
 
 | Document | Contents |
 |---|---|
-| **[Architecture](docs/architecture.md)** | Evidence tiers, decision provenance, all abstention triggers, the rule engine, reachability contract, two-step place-name resolution, route modelling |
-| **[Knowledge base](docs/knowledge-base.md)** | Every safety threshold and its source (generated from code), `REG` / `WARN` / `PROD` classes, source strength |
-| **[Evaluation design & full results](docs/evaluation.md)** | What each of the four layers measures, the check list, all L4 and L1 numbers |
-| **[Known limits](docs/limitations.md)** | Capability limits / criteria limits / evaluation-method limits / engineering trade-offs |
+| **[Architecture](docs/architecture.md)** | Rationale for evidence tiers, traceable decisions, all abstention triggers, rule engine, reachability contract, two-step place-name checks, route modelling |
+| **[Knowledge base](docs/knowledge-base.md)** | Every safety threshold with its source (generated from code), `REG` / `WARN` / `PROD` classes, citation-strength tiers |
+| **[Evaluation design and full results](docs/evaluation.md)** | What each layer tests, list of checks, all L4 and L1 figures |
+| **[Known limitations](docs/limitations.md)** | Capability limits / criteria limits / evaluation-method limits / engineering trade-offs |
 
-## Other projects by the author
+## Related projects
 
-Each project's shape follows its task: a fenced-in agent for a single-turn decision, a multi-agent workflow for critique from several sides, a scheduled workflow for a fixed daily run.
-
-| Project | Shape | What it is |
-| --- | --- | --- |
-| **VoyageGuard** (this repo) | Single agent + rule engine outside the loop | Weather-risk decision agent · [live](https://voyageguard-two.vercel.app) |
-| [**Liangyi**](https://github.com/wenboxia/liangyi) | Multi-agent workflow | Cross-vendor multi-agent workflow for refining product ideas · [live](https://liangyi-five.vercel.app). Its retrospective case study replays this project's real development history |
-| [**AIRadar**](https://github.com/wenboxia/airadar) | Scheduled workflow | A daily AI-industry intelligence workflow · [live](https://wenboxia.github.io/airadar/) |
+| Project | Description |
+| --- | --- |
+| **VoyageGuard** (this repository) | Weather-risk decision agent · [Live demo](https://voyageguard-two.vercel.app) |
+| [**Liangyi**](https://github.com/wenboxia/liangyi) | Cross-vendor multi-agent workflow for refining product ideas · [Live demo](https://liangyi-five.vercel.app) |
+| [**AIRadar**](https://github.com/wenboxia/airadar) | Daily scheduled AI industry intelligence workflow · [View](https://wenboxia.github.io/airadar/) |
 
 ## Author
 
-Wenbo Xia (夏文博) · AI product manager · [MIT License](LICENSE)
+Wenbo Xia · AI Product Manager · [MIT License](LICENSE)

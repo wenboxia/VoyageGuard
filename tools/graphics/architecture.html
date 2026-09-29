@@ -1,0 +1,253 @@
+<!doctype html>
+<!-- README 架构图。由 tools/gen_graphics.py 用无头 Chrome 渲染成
+     docs/images/architecture.png（?lang=zh）与 architecture.en.png（?lang=en）。
+     配色、字体与线上页面 static/index.html 一致。 -->
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<link href="https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@400;500;600&family=Outfit:wght@400;500;600;700&display=swap" rel="stylesheet">
+<style>
+  :root {
+    --bg: #060a12; --surface: #0b1422; --surface2: #0f1c30;
+    --border: #162340; --border-bright: #1e3356;
+    --cyan: #00c8e8; --amber: #f0b429; --green: #00e676; --red: #ff4060; --slate: #94a3b8;
+    --text: #a8c0d8; --text-bright: #d4e8f8; --text-muted: #4f6f8a;
+    --mono: 'IBM Plex Mono', 'SF Mono', Menlo, monospace;
+    --sans: 'Outfit', 'PingFang SC', 'Hiragino Sans GB', system-ui, sans-serif;
+  }
+  * { margin: 0; padding: 0; box-sizing: border-box; }
+  html, body { width: 1600px; height: 100vh; overflow: hidden; }
+  body {
+    position: relative;
+    background: var(--bg);
+    background-image: radial-gradient(circle, rgba(0,200,232,0.06) 1px, transparent 1px);
+    background-size: 28px 28px;
+    color: var(--text); font-family: var(--sans);
+    padding: 36px 40px 0;
+  }
+
+  .top { display: flex; justify-content: space-between; align-items: center; margin-bottom: 30px; }
+  .top-tag { font: 500 13px var(--mono); letter-spacing: 0.28em; color: var(--cyan); }
+  .legend { display: flex; gap: 22px; font: 500 12px var(--mono); letter-spacing: 0.06em; }
+  .legend span { display: flex; align-items: center; gap: 8px; }
+  .legend i { width: 10px; height: 10px; border-radius: 3px; display: inline-block; }
+
+  .row { display: flex; align-items: stretch; }
+  .gap { width: 44px; flex-shrink: 0; }
+
+  .card {
+    background: var(--surface); border: 1px solid var(--border); border-radius: 14px;
+    padding: 20px 20px 18px; display: flex; flex-direction: column;
+  }
+  .card.io { width: 196px; background: rgba(11,20,34,0.7); }
+  .card.stage { width: 330px; }
+  .card.det   { border-color: rgba(0,200,232,0.45); box-shadow: 0 0 28px rgba(0,200,232,0.08); }
+  .card.model { border-color: rgba(240,180,41,0.45); box-shadow: 0 0 28px rgba(240,180,41,0.07); width: 290px; }
+  .card.rule  { border-color: rgba(0,230,118,0.45); box-shadow: 0 0 28px rgba(0,230,118,0.07); }
+
+  .badge {
+    align-self: flex-start; font: 500 11px var(--mono); letter-spacing: 0.08em;
+    padding: 3px 8px; border-radius: 5px; margin-bottom: 12px;
+  }
+  .det .badge   { background: rgba(0,200,232,0.12); color: var(--cyan); }
+  .model .badge { background: rgba(240,180,41,0.12); color: var(--amber); }
+  .rule .badge  { background: rgba(0,230,118,0.12); color: var(--green); }
+  .io .badge    { background: rgba(148,163,184,0.12); color: var(--slate); }
+
+  h3 { font-size: 21px; font-weight: 600; color: var(--text-bright); line-height: 1.25; }
+  .sub { font-size: 14px; color: var(--text-muted); margin-top: 5px; }
+  ul { list-style: none; margin-top: 16px; display: flex; flex-direction: column; gap: 10px; }
+  li { font-size: 14.5px; line-height: 1.45; padding-left: 14px; position: relative; }
+  li::before { content: ''; position: absolute; left: 0; top: 9px; width: 5px; height: 5px; border-radius: 50%; background: var(--border-bright); }
+  .det li::before { background: rgba(0,200,232,0.6); }
+  .model li::before { background: rgba(240,180,41,0.6); }
+  .rule li::before { display: none; }
+  .rule li { padding-left: 26px; }
+  .rule li b {
+    position: absolute; left: 0; top: 1px; width: 18px; height: 18px; border-radius: 5px;
+    background: rgba(0,230,118,0.12); color: var(--green); font: 600 11px/18px var(--mono); text-align: center;
+  }
+  code { font: 12.5px var(--mono); color: var(--text-bright); }
+  .file { margin-top: auto; padding-top: 14px; font: 12px var(--mono); color: var(--text-muted); }
+
+  .chips { display: flex; flex-wrap: wrap; gap: 6px; margin-top: 8px; }
+  .chip { font: 600 11px var(--mono); padding: 3px 7px; border-radius: 5px; letter-spacing: 0.04em; }
+  .chip.low { background: rgba(0,230,118,0.12); color: var(--green); }
+  .chip.med { background: rgba(240,180,41,0.12); color: var(--amber); }
+  .chip.high { background: rgba(255,64,96,0.12); color: var(--red); }
+  .chip.unk { background: rgba(148,163,184,0.14); color: var(--slate); }
+  .io .item { font-size: 14.5px; line-height: 1.45; margin-top: 14px; }
+  .io .item:first-of-type { margin-top: 2px; }
+  .io .k { font: 500 11px var(--mono); color: var(--text-muted); letter-spacing: 0.06em; display: block; margin-bottom: 3px; }
+
+  .bypass-label {
+    position: absolute; transform: translateX(-50%); text-align: center;
+    font-size: 14px; color: var(--text); white-space: nowrap;
+  }
+  .bypass-label em { font-style: normal; color: var(--slate); font: 500 12px var(--mono); letter-spacing: 0.06em; display: block; margin-bottom: 4px; }
+
+  .footer {
+    position: absolute; left: 40px; right: 40px;
+    display: flex; justify-content: center; font-size: 15px; color: var(--text);
+  }
+  .footer span { padding: 8px 18px; border: 1px solid var(--border); border-radius: 999px; background: rgba(11,20,34,0.8); }
+  .footer b { color: var(--text-bright); font-weight: 600; }
+  svg { position: absolute; left: 0; top: 0; pointer-events: none; }
+</style>
+</head>
+<body>
+  <div class="top">
+    <div class="top-tag" data-t="tag"></div>
+    <div class="legend">
+      <span style="color:var(--cyan)"><i style="background:var(--cyan)"></i>DETERMINISTIC</span>
+      <span style="color:var(--amber)"><i style="background:var(--amber)"></i>MODEL</span>
+      <span style="color:var(--green)"><i style="background:var(--green)"></i>RULE ENGINE</span>
+    </div>
+  </div>
+
+  <div class="row">
+    <div class="card io" id="c-in">
+      <div class="badge">INPUT</div>
+      <div class="item"><span class="k" data-t="in_k1"></span><span data-t="in_v1"></span></div>
+      <div class="item"><span class="k" data-t="in_k2"></span><span data-t="in_v2"></span></div>
+      <div class="item"><span class="k" data-t="in_k3"></span><span data-t="in_v3"></span></div>
+    </div>
+    <div class="gap"></div>
+    <div class="card stage det" id="c-det">
+      <div class="badge">① DETERMINISTIC</div>
+      <h3 data-t="det_h"></h3>
+      <div class="sub" data-t="det_sub"></div>
+      <ul>
+        <li data-t="det_1"></li>
+        <li data-t="det_2"></li>
+        <li data-t="det_3"></li>
+        <li data-t="det_4"></li>
+      </ul>
+      <div class="file">evidence.py</div>
+    </div>
+    <div class="gap"></div>
+    <div class="card stage model" id="c-model">
+      <div class="badge">② MODEL</div>
+      <h3 data-t="model_h"></h3>
+      <div class="sub" data-t="model_sub"></div>
+      <ul>
+        <li data-t="model_1"></li>
+        <li data-t="model_2"></li>
+        <li data-t="model_3"></li>
+      </ul>
+      <div class="file">agent.py · providers.py</div>
+    </div>
+    <div class="gap"></div>
+    <div class="card stage rule" id="c-rule">
+      <div class="badge">③ RULE ENGINE</div>
+      <h3 data-t="rule_h"></h3>
+      <div class="sub" data-t="rule_sub"></div>
+      <ul>
+        <li><b>1</b><span data-t="rule_1"></span></li>
+        <li><b>2</b><span data-t="rule_2"></span></li>
+        <li><b>3</b><span data-t="rule_3"></span></li>
+      </ul>
+      <div class="file">rules.py · rules_sources.py</div>
+    </div>
+    <div class="gap"></div>
+    <div class="card io" id="c-out">
+      <div class="badge">OUTPUT</div>
+      <div class="item"><span class="k" data-t="out_k1"></span>
+        <div class="chips"><span class="chip low">LOW</span><span class="chip med">MEDIUM</span><span class="chip high">HIGH</span><span class="chip unk">UNKNOWN</span></div></div>
+      <div class="item"><span class="k" data-t="out_k2"></span>
+        <div class="chips"><span class="chip unk">REG</span><span class="chip unk">WARN</span><span class="chip unk">PROD</span></div></div>
+      <div class="item"><span class="k" data-t="out_k3"></span><span data-t="out_v3"></span></div>
+    </div>
+  </div>
+
+  <div class="footer" id="footer"><span data-t="footer"></span></div>
+
+<script>
+const T = {
+  zh: {
+    tag: "REQUEST FLOW · POST /api/assess",
+    in_k1: "ROUTE", in_v1: "出发地 → 目的地",
+    in_k2: "DATE", in_v2: "今天起 3 天",
+    in_k3: "MODE", in_v3: "飞机 / 船只（含船型）",
+    det_h: "确定性证据管线", det_sub: "不经模型",
+    det_1: "解析坐标：白名单 → 名字校验 → 海域回验",
+    det_2: "必需证据：风速 · 阵风 · 能见度 · 有效浪高",
+    det_3: "船只沿航路采样；航空当天查 SIGMET",
+    det_4: "充分性判定",
+    model_h: "模型 · ReAct 循环", model_sub: "负责解释与建议，不负责判定",
+    model_1: "读取预取的结构化证据（JSON）",
+    model_2: "按需调用补充工具，最多 5 轮<br><code>search_weather_warning</code><br><code>get_weather_forecast</code>",
+    model_3: "产出通俗解释与备选建议",
+    rule_h: "规则引擎 verifier", rule_sub: "持有最终判定权，位于模型循环之外",
+    rule_1: "证据不足 → <code>UNKNOWN</code>",
+    rule_2: "越过官方线而模型判低 → 强制升级",
+    rule_3: "模型判 <code>HIGH</code> 而指标不支持 → 降级",
+    out_k1: "RISK LEVEL", out_k2: "TRIGGERS · 带出处", out_k3: "TRACE", out_v3: "真实执行轨迹",
+    by_em: "BYPASS", by: "必需证据直达规则引擎 · 证据不足时跳过模型调用",
+    footer: "安全关键证据的获取与风险判定，<b>均不取决于模型的自由裁量</b>",
+  },
+  en: {
+    tag: "REQUEST FLOW · POST /api/assess",
+    in_k1: "ROUTE", in_v1: "Origin → destination",
+    in_k2: "DATE", in_v2: "Today + 2 days",
+    in_k3: "MODE", in_v3: "Plane / ship + vessel type",
+    det_h: "Evidence pipeline", det_sub: "Deterministic · no model involved",
+    det_1: "Location: allowlist → name check → sea check",
+    det_2: "Required: wind · gusts · visibility · waves",
+    det_3: "Route sampling (ship) · SIGMET (same-day flight)",
+    det_4: "Sufficiency check",
+    model_h: "Model · ReAct loop", model_sub: "Explains and advises; does not decide",
+    model_1: "Reads pre-fetched evidence (JSON)",
+    model_2: "Optional tools, up to 5 rounds<br><code>search_weather_warning</code><br><code>get_weather_forecast</code>",
+    model_3: "Writes explanation and alternatives",
+    rule_h: "Rule-engine verifier", rule_sub: "Final verdict, outside the model loop",
+    rule_1: "Insufficient evidence → <code>UNKNOWN</code>",
+    rule_2: "Line crossed, model rated low → escalate",
+    rule_3: "<code>HIGH</code> without support → downgrade",
+    out_k1: "RISK LEVEL", out_k2: "TRIGGERS · SOURCED", out_k3: "TRACE", out_v3: "Real execution trace",
+    by_em: "BYPASS", by: "Rule engine reads required evidence directly · model skipped when evidence is insufficient",
+    footer: "Neither the safety-critical evidence nor the verdict <b>depends on the model's discretion</b>",
+  },
+};
+const lang = new URLSearchParams(location.search).get("lang") === "en" ? "en" : "zh";
+document.documentElement.lang = lang === "en" ? "en" : "zh-CN";
+document.querySelectorAll("[data-t]").forEach(el => { el.innerHTML = T[lang][el.dataset.t]; });
+
+function draw() {
+  const r = id => document.getElementById(id).getBoundingClientRect();
+  const W = 1600, H = window.innerHeight;
+  const svg = document.createElementNS("http://www.w3.org/2000/svg", "svg");
+  svg.setAttribute("width", W); svg.setAttribute("height", H);
+  svg.innerHTML = `<defs>
+    <marker id="ah" viewBox="0 0 10 10" refX="8" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse">
+      <path d="M0,0 L10,5 L0,10 z" fill="#2c4a6e"/></marker>
+    <marker id="ahs" viewBox="0 0 10 10" refX="8" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse">
+      <path d="M0,0 L10,5 L0,10 z" fill="#94a3b8"/></marker></defs>`;
+  const ids = ["c-in", "c-det", "c-model", "c-rule", "c-out"];
+  const rects = ids.map(r);
+  const y = rects[1].top + 64;
+  const add = (tag, attrs) => { const e = document.createElementNS(svg.namespaceURI, tag);
+    Object.entries(attrs).forEach(([k, v]) => e.setAttribute(k, v)); svg.appendChild(e); return e; };
+  for (let i = 0; i < 4; i++) {
+    add("line", { x1: rects[i].right + 6, y1: y, x2: rects[i + 1].left - 6, y2: y,
+      stroke: "#2c4a6e", "stroke-width": 2, "marker-end": "url(#ah)" });
+  }
+  const label = (html, x, top, cls) => { const d = document.createElement("div");
+    d.className = cls; d.innerHTML = html; d.style.left = x + "px"; d.style.top = top + "px";
+    document.body.appendChild(d); };
+  // 旁路：① 底部 → 绕过 ② 下方 → ③ 底部
+  const det = rects[1], model = rects[2], rule = rects[3];
+  const x1 = det.left + det.width * 0.62, x2 = rule.left + rule.width * 0.38;
+  const yb = Math.max(det.bottom, model.bottom, rule.bottom);
+  const yLow = yb + 46;
+  add("path", { d: `M${x1},${yb + 4} V${yLow - 12} Q${x1},${yLow} ${x1 + 12},${yLow} H${x2 - 12} Q${x2},${yLow} ${x2},${yLow - 12} V${yb + 6}`,
+    fill: "none", stroke: "#94a3b8", "stroke-width": 2, "stroke-dasharray": "7 6", "marker-end": "url(#ahs)" });
+  label(`<em>${T[lang].by_em}</em>${T[lang].by}`, (x1 + x2) / 2, yLow + 10, "bypass-label");
+  const lb = document.querySelector(".bypass-label").getBoundingClientRect();
+  document.getElementById("footer").style.top = (lb.bottom + 22) + "px";
+  document.body.appendChild(svg);
+}
+(document.fonts ? document.fonts.ready : Promise.resolve()).then(draw);
+</script>
+</body>
+</html>

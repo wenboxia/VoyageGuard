@@ -43,28 +43,27 @@ SCALE = 2                  # 设备像素比，2x 在 README 里缩放显示不�
 # 卡片选择器 —— 切分线只能落在这些元素之间的空隙上
 CARDS = ".risk-hero, .info-card, .trace-panel, .submit-btn"
 
+# 中英两张 hero 与 trace 用**同一条航线、同一天**：「跨海客滚航线」预设（烟台→大连，
+# 英文界面自动填 Yantai→Dalian）+ 第 HERO_DAY 个日期按钮（0 = 今天，1 = 明天，2 = 后天）。
+# 天气每天变，出图前先用规则引擎探一遍哪天有触发项（evidence.build_evidence + rules.required_level），
+# 再改 HERO_DAY。2026-09-29 出图时选的是明天（2026-09-30，HIGH，5 条触发项含航线中点）。
+HERO_DAY = 1
+HERO_JS = (f"loadPreset('high-ship'); document.querySelectorAll('.date-btn')[{HERO_DAY}].click();"
+           " submitAssess();")
+
 # (输出文件名, 触发这个状态的 JS, 说明, 是否切成双栏)
 SHOTS = [
-    ("hero.png",
-     ("document.getElementById('origin').value='舟山';"
-      "document.getElementById('destination').value='嵊泗';"
-      "setTransport('ship'); setVessel('unknown'); updateSubmitState(); submitAssess();"),
-     "舟山→嵊泗 船只 · 完整结果页（HIGH，4 条触发含航线中点）", True),
+    ("hero.png", HERO_JS,
+     "烟台→大连 船只 · 完整结果页（含航线中点）", True),
     ("abstain.png",
      "loadPreset('low'); submitAssess();",
      "北京→西安 船只 · 证据不足第四态（确定性，任何时候都一样）", True),
-    # 英文版：先切到英文界面再用预设。hero.en 用「跨海客滚航线」预设 + 第三个日期按钮
-    # （天气每天变，出图前先用规则引擎探一遍哪天有触发项，再改这里的日期按钮序号）
-    ("hero.en.png",
-     "switchLang(); loadPreset('high-ship'); document.querySelectorAll('.date-btn')[2].click(); submitAssess();",
+    ("hero.en.png", "switchLang(); " + HERO_JS,
      "Yantai → Dalian · full result page (English UI)", True),
     ("abstain.en.png",
      "switchLang(); loadPreset('low'); submitAssess();",
      "Beijing → Xi'an by ship · insufficient evidence (English UI)", True),
-    ("trace.png",
-     ("document.getElementById('origin').value='舟山';"
-      "document.getElementById('destination').value='嵊泗';"
-      "setTransport('ship'); setVessel('unknown'); updateSubmitState(); submitAssess();"),
+    ("trace.png", HERO_JS,
      "真实执行轨迹 · 确定性预取 / 模型 / 规则引擎 三类步骤分开标注", False),
 ]
 
